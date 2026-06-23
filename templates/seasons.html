@@ -23,23 +23,23 @@
 
     <div class="episode-list" id="s{{ season_num }}">
       {% for ep in episodes %}
-      <div class="ep-row" id="row-{{ ep.id }}">
+      <div class="ep-row">
         <div class="ep-info">
           <span class="ep-num">E{{ '%02d' % ep.episode_num }}</span>
           <span class="ep-title">{{ ep.title or '—' }}</span>
         </div>
-        <button class="btn btn-success btn-sm"
-                onclick="showRename('{{ ep.id }}',
-                                    '{{ ep.container_extension }}',
-                                    {{ ep._filename | tojson }})">
+        <button class="btn btn-success btn-sm dl-btn"
+                data-ep-id="{{ ep.id }}"
+                data-ext="{{ ep.container_extension }}"
+                data-filename="{{ ep._filename }}">
           ↓ Download
         </button>
       </div>
 
-      <!-- Inline rename bar (hidden by default) -->
+      <!-- Inline rename bar -->
       <div class="rename-bar" id="rename-{{ ep.id }}" style="display:none">
         <input type="text" id="fname-{{ ep.id }}" spellcheck="false">
-        <a class="btn btn-primary btn-sm" id="dlbtn-{{ ep.id }}">Downloaden</a>
+        <button class="btn btn-primary btn-sm" id="dlbtn-{{ ep.id }}">Downloaden</button>
         <button class="btn btn-secondary btn-sm"
                 onclick="hideRename('{{ ep.id }}')">Annuleer</button>
       </div>
@@ -71,8 +71,6 @@
 .ep-info{display:flex;align-items:center;gap:.75rem;min-width:0;flex:1}
 .ep-num{font-size:.78rem;color:#555;font-variant-numeric:tabular-nums;flex-shrink:0}
 .ep-title{font-size:.875rem;color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-
-/* Rename bar */
 .rename-bar{display:flex;align-items:center;gap:.5rem;padding:.6rem 1.25rem;background:#0f1a0f;border-bottom:1px solid #1e1e1e;flex-wrap:wrap}
 .rename-bar input{flex:1;min-width:200px;font-family:monospace;font-size:.82rem;background:#0d0d0d;border:1px solid #2e4a2e;color:#e2e2e2;padding:.4rem .7rem;border-radius:5px;outline:none}
 .rename-bar input:focus{border-color:#4ade80}
@@ -87,36 +85,44 @@ function toggleSeason(id) {
   chev.style.transform = open ? '' : 'rotate(90deg)';
 }
 
-function showRename(epId, ext, defaultName) {
-  // Hide any other open rename bars first
-  document.querySelectorAll('.rename-bar').forEach(b => b.style.display = 'none');
-
-  const bar   = document.getElementById('rename-' + epId);
-  const input = document.getElementById('fname-' + epId);
-  const dlBtn = document.getElementById('dlbtn-' + epId);
-
-  input.value = defaultName;
-  bar.style.display = 'flex';
-  input.focus();
-  // Select the name part (without extension) for easy editing
-  const dotIdx = input.value.lastIndexOf('.');
-  input.setSelectionRange(0, dotIdx > 0 ? dotIdx : input.value.length);
-
-  function startDownload() {
-    const filename = input.value.trim() || defaultName;
-    const url = '/stream/' + epId + '?ext=' + encodeURIComponent(ext)
-              + '&filename=' + encodeURIComponent(filename);
-    window.location.href = url;
-    bar.style.display = 'none';
-  }
-
-  dlBtn.onclick = startDownload;
-  input.onkeydown = e => { if (e.key === 'Enter') startDownload(); if (e.key === 'Escape') hideRename(epId); };
-}
-
 function hideRename(epId) {
   document.getElementById('rename-' + epId).style.display = 'none';
 }
+
+document.querySelectorAll('.dl-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    const epId    = this.dataset.epId;
+    const ext     = this.dataset.ext;
+    const defName = this.dataset.filename;
+
+    // Hide any other open rename bars
+    document.querySelectorAll('.rename-bar').forEach(b => b.style.display = 'none');
+
+    const bar   = document.getElementById('rename-' + epId);
+    const input = document.getElementById('fname-' + epId);
+    const dlBtn = document.getElementById('dlbtn-' + epId);
+
+    input.value = defName;
+    bar.style.display = 'flex';
+    input.focus();
+    const dotIdx = input.value.lastIndexOf('.');
+    input.setSelectionRange(0, dotIdx > 0 ? dotIdx : input.value.length);
+
+    function startDownload() {
+      const filename = input.value.trim() || defName;
+      window.location.href = '/stream/' + encodeURIComponent(epId)
+        + '?ext=' + encodeURIComponent(ext)
+        + '&filename=' + encodeURIComponent(filename);
+      bar.style.display = 'none';
+    }
+
+    dlBtn.onclick = startDownload;
+    input.onkeydown = function(e) {
+      if (e.key === 'Enter')  startDownload();
+      if (e.key === 'Escape') hideRename(epId);
+    };
+  });
+});
 </script>
 
 {% endblock %}
