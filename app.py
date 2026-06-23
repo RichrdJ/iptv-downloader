@@ -159,6 +159,15 @@ def save_account(acc):
         json.dump(accounts, f, indent=2)
 
 
+def update_account(idx, data):
+    accounts = load_accounts()
+    if 0 <= idx < len(accounts):
+        accounts[idx].update(data)
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(accounts, f, indent=2)
+
+
 def delete_account(idx):
     accounts = load_accounts()
     if 0 <= idx < len(accounts):
@@ -371,6 +380,21 @@ def connect():
 
     if action == 'delete':
         delete_account(int(request.form.get('account_idx', 0)))
+        return redirect(url_for('index'))
+
+    if action == 'edit':
+        idx    = int(request.form.get('account_idx', 0))
+        name   = request.form.get('account_name', '').strip()
+        server = request.form.get('server', '').strip()
+        user   = request.form.get('username', '').strip()
+        pwd    = request.form.get('password', '').strip()
+        if name or server or user:
+            data = {}
+            if name:   data['name']     = name
+            if server: data['server']   = server
+            if user:   data['username'] = user
+            if pwd:    data['password'] = pwd
+            update_account(idx, data)
         return redirect(url_for('index'))
 
     raw    = request.form.get('m3u_url', '').strip()
