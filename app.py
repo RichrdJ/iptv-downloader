@@ -13,7 +13,7 @@ import requests as http
 from flask import (Flask, render_template, request, redirect,
                    url_for, session, Response, stream_with_context)
 
-VERSION = "1.7.1"
+VERSION = "1.7.2"
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
@@ -151,7 +151,8 @@ def index():
     # Auto-connect to the default account if no active session
     if 'server' not in session:
         accounts = load_accounts()
-        default  = next((a for a in accounts if a.get('default')), None)
+        # Use the account marked default, otherwise fall back to the first saved account
+        default = next((a for a in accounts if a.get('default')), None) or (accounts[0] if accounts else None)
         if default:
             client = XtreamClient(default['server'], default['username'], default['password'])
             if client.authenticate():
