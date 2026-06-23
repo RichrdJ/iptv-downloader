@@ -1,0 +1,14 @@
+services:
+  iptv-downloader:
+    image: ghcr.io/richrdj/iptv-downloader:latest
+    container_name: iptv-downloader
+    stdin_open: true
+    tty: true
+    volumes:
+      - iptv_config:/config
+      - iptv_downloads:/downloads
+    restart: "no"
+
+volumes:
+  iptv_config:
+  iptv_downloads:
