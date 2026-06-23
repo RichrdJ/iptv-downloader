@@ -1,0 +1,168 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<div class="page-header">
+  <a href="/movies" class="btn btn-secondary btn-sm">← Terug</a>
+  <h1>{{ title }}</h1>
+  <span class="badge" id="count-badge">{{ movies | length }}</span>
+</div>
+
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+<div class="filter-bar">
+  <input type="text" id="filter-input" placeholder="Filter op naam…" autofocus>
+  <select id="sort-select" class="sort-sel">
+    <option value="name-asc">A → Z</option>
+    <option value="name-desc">Z → A</option>
+    <option value="rating-desc">★ Hoog → Laag</option>
+    <option value="rating-asc">★ Laag → Hoog</option>
+  </select>
+</div>
+
+{% if movies %}
+<div class="series-grid" id="movie-grid">
+  {% for m in movies %}
+  <div class="series-card-wrap"
+       data-name="{{ m.name | lower }}"
+       data-rating="{{ m.rating or 0 }}">
+    <div class="series-card">
+      <div class="cover-wrap">
+        {% if m.stream_icon %}
+        <img src="{{ m.stream_icon }}" loading="lazy" class="series-cover"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+        <div class="cover-placeholder" style="display:none">🎬</div>
+        {% else %}
+        <div class="cover-placeholder">🎬</div>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        <div class="name">{{ m.name }}</div>
+        {% if m.rating %}<div class="meta">★ {{ m.rating }}</div>{% endif %}
+      </div>
+    </div>
+    <button class="dl-movie-btn"
+            data-movie-id="{{ m.stream_id }}"
+            data-ext="{{ m.container_extension or 'mp4' }}"
+            data-name="{{ m.name }}"
+            data-year="{{ m.year or '' }}"
+            title="Downloaden">↓</button>
+  </div>
+  {% endfor %}
+</div>
+<p id="no-results" style="display:none;color:#555;margin-top:2rem">Geen resultaten.</p>
+{% else %}
+<div class="empty"><div class="icon">🎬</div><p>Geen films gevonden.</p></div>
+{% endif %}
+
+<!-- Rename dialog overlay -->
+<div id="rename-overlay" style="display:none">
+  <div id="rename-box">
+    <div style="font-weight:600;margin-bottom:.75rem;color:#e2e2e2">Bestandsnaam aanpassen</div>
+    <input type="text" id="rename-input" spellcheck="false">
+    <div style="display:flex;gap:.5rem;margin-top:.75rem;justify-content:flex-end">
+      <button class="btn btn-secondary btn-sm" onclick="closeRename()">Annuleren</button>
+      <button class="btn btn-primary btn-sm" id="rename-dl-btn">↓ Downloaden</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.filter-bar{display:flex;gap:.5rem;margin-bottom:1.25rem;flex-wrap:wrap}
+.filter-bar input{flex:1;min-width:180px}
+.sort-sel{background:#0d0d0d;border:1px solid #2e2e2e;color:#e2e2e2;padding:.6rem .85rem;border-radius:6px;font-size:.875rem;outline:none;cursor:pointer}
+.series-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:.75rem}
+.series-card-wrap{position:relative}
+.series-card{display:flex;flex-direction:column;background:#141414;border:1px solid #242424;border-radius:8px;overflow:hidden;text-decoration:none;color:inherit;transition:border-color .15s,transform .15s;cursor:default}
+.series-card:hover{border-color:#00d4ff;transform:translateY(-2px)}
+.cover-wrap{width:100%;aspect-ratio:2/3;background:#0a0a0a;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.series-cover{width:100%;height:100%;object-fit:cover;display:block}
+.cover-placeholder{font-size:2rem;color:#222;width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+.card-body{padding:.6rem .75rem}
+.card-body .name{font-size:.8rem;font-weight:500;color:#e2e2e2;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card-body .meta{font-size:.72rem;color:#555;margin-top:.25rem}
+.dl-movie-btn{position:absolute;bottom:.4rem;right:.4rem;background:#003a4a;border:1px solid #00d4ff44;color:#00d4ff;font-size:.85rem;width:28px;height:28px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s}
+.dl-movie-btn:hover{background:#005a70}
+.empty{text-align:center;padding:4rem 2rem;color:#555}
+.empty .icon{font-size:3rem;margin-bottom:1rem}
+#rename-overlay{position:fixed;inset:0;background:#000000cc;z-index:300;display:flex;align-items:center;justify-content:center}
+#rename-box{background:#141414;border:1px solid #242424;border-radius:10px;padding:1.5rem;min-width:320px;max-width:480px;width:90%}
+#rename-input{width:100%;box-sizing:border-box;font-family:monospace;font-size:.82rem;background:#0d0d0d;border:1px solid #2e4a2e;color:#e2e2e2;padding:.4rem .7rem;border-radius:5px;outline:none}
+#rename-input:focus{border-color:#4ade80}
+</style>
+
+<script>
+const cards = [...document.querySelectorAll('.series-card-wrap')];
+
+function applyFilter() {
+  const q    = document.getElementById('filter-input').value.toLowerCase();
+  const sort = document.getElementById('sort-select').value;
+  let vis = q ? cards.filter(c => c.dataset.name.includes(q)) : [...cards];
+  vis.sort((a, b) => {
+    if (sort === 'name-asc')    return a.dataset.name.localeCompare(b.dataset.name);
+    if (sort === 'name-desc')   return b.dataset.name.localeCompare(a.dataset.name);
+    if (sort === 'rating-desc') return parseFloat(b.dataset.rating) - parseFloat(a.dataset.rating);
+    if (sort === 'rating-asc')  return parseFloat(a.dataset.rating) - parseFloat(b.dataset.rating);
+  });
+  const grid = document.getElementById('movie-grid');
+  cards.forEach(c => c.style.display = 'none');
+  vis.forEach(c => { c.style.display = ''; grid.appendChild(c); });
+  document.getElementById('count-badge').textContent = vis.length;
+  document.getElementById('no-results').style.display = vis.length ? 'none' : 'block';
+}
+
+document.getElementById('filter-input').addEventListener('input', applyFilter);
+document.getElementById('sort-select').addEventListener('change', applyFilter);
+
+let _pendingDl = null;
+
+function closeRename() {
+  document.getElementById('rename-overlay').style.display = 'none';
+  _pendingDl = null;
+}
+
+document.querySelectorAll('.dl-movie-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    const movieId = this.dataset.movieId;
+    const ext     = this.dataset.ext;
+    const name    = this.dataset.name;
+    const year    = this.dataset.year;
+    const defName = buildFilename(name, year, ext);
+
+    _pendingDl = {movieId, ext, defName};
+    const input = document.getElementById('rename-input');
+    input.value = defName;
+    document.getElementById('rename-overlay').style.display = 'flex';
+    input.focus();
+    const dot = input.value.lastIndexOf('.');
+    input.setSelectionRange(0, dot > 0 ? dot : input.value.length);
+  });
+});
+
+function buildFilename(name, year, ext) {
+  let s = name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '').replace(/[\s\-]+/g, '.').replace(/\.+/g, '.').replace(/^\.|\.$/g, '');
+  if (year) s += '.' + year;
+  return s + '.' + ext;
+}
+
+document.getElementById('rename-dl-btn').addEventListener('click', doDownload);
+document.getElementById('rename-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doDownload();
+  if (e.key === 'Escape') closeRename();
+});
+
+function doDownload() {
+  if (!_pendingDl) return;
+  const {movieId, ext, defName} = _pendingDl;
+  const fn = document.getElementById('rename-input').value.trim() || defName;
+  triggerDownload('/stream/movie/' + encodeURIComponent(movieId) + '?ext=' + encodeURIComponent(ext) + '&filename=' + encodeURIComponent(fn), fn);
+  closeRename();
+}
+
+function triggerDownload(url, filename) {
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+</script>
+
+{% endblock %}

@@ -13,6 +13,7 @@ nav{background:#141414;border-bottom:1px solid #242424;padding:0 1.5rem;display:
 .brand{font-size:1rem;font-weight:700;color:#00d4ff;text-decoration:none;letter-spacing:.02em}
 nav a{color:#666;text-decoration:none;font-size:.875rem;transition:color .15s}
 nav a:hover{color:#e2e2e2}
+.nav-badge{background:#00d4ff;color:#000;font-size:.65rem;font-weight:700;padding:.1rem .35rem;border-radius:8px;vertical-align:middle;margin-left:.2rem}
 .spacer{flex:1}
 .acct-label{font-size:.75rem;color:#444;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
@@ -113,7 +114,9 @@ hr.divider{border:none;border-top:1px solid #1e1e1e;margin:1.5rem 0}
   <a class="brand" href="/">&#9660; IPTV Downloader</a>
   <span style="font-size:.7rem;color:#333;margin-left:-.75rem">v{{ version }}</span>
   {% if session.get('server') %}
-  <a href="/browse">Browse</a>
+  <a href="/browse">Series</a>
+  <a href="/movies">Films</a>
+  <a href="/favorites">Favorieten{% if fav_ids %} <span class="nav-badge">{{ fav_ids|length }}</span>{% endif %}</a>
   <div class="spacer"></div>
   <span class="acct-label">{{ session.get('account_name','') }}</span>
   <a href="/logout" title="Account wisselen">Wisselen</a>

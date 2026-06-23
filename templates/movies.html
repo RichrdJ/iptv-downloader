@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<div class="page-header">
+  <h1 style="margin:0">Films bladeren</h1>
+</div>
+
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+<form class="search-bar" action="/movies/search" method="GET">
+  <input type="text" name="q" placeholder="Zoek op filmnaam…" autofocus>
+  <button type="submit" class="btn btn-primary">Zoeken</button>
+</form>
+
+<h2>Categorieën</h2>
+
+{% if categories %}
+<div class="cat-grid">
+  {% for cat in categories %}
+  <a class="cat-item"
+     href="/movies/category/{{ cat.category_id }}?name={{ cat.category_name | urlencode }}">
+    {{ cat.category_name }}
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty">
+  <div class="icon">🎬</div>
+  <p>Geen filmcategorieën gevonden.</p>
+</div>
+{% endif %}
+
+{% endblock %}
