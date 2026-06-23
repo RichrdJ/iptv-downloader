@@ -13,7 +13,7 @@ import requests as http
 from flask import (Flask, render_template, request, redirect,
                    url_for, session, Response, stream_with_context)
 
-VERSION = "1.7.0"
+VERSION = "1.7.1"
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
@@ -36,7 +36,7 @@ READ_TIMEOUT       = 30
 
 def sanitize(name: str) -> str:
     name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', name)
-    name = re.sub(r'\s+', '.', name).strip('.') or 'Unknown'
+    name = re.sub(r'[\s\-]+', '.', name).strip('.') or 'Unknown'
     return name
 
 
