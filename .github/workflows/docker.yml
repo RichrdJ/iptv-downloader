@@ -43,3 +43,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Trigger Portainer redeploy
+        if: ${{ secrets.PORTAINER_WEBHOOK != '' }}
+        run: curl -s -X POST "${{ secrets.PORTAINER_WEBHOOK }}"
