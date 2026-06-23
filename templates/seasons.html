@@ -167,6 +167,12 @@ function toggleSeason(id) {
   chev.style.transform = open ? '' : 'rotate(90deg)';
 }
 
+// Auto-expand if only one season
+if (document.querySelectorAll('.season-block').length === 1) {
+  const first = document.querySelector('.episode-list');
+  if (first) { first.style.display = 'block'; document.querySelector('.chevron').style.transform = 'rotate(90deg)'; }
+}
+
 // Season checkbox
 function toggleSeasonCb(cb) {
   const season = cb.dataset.season;
