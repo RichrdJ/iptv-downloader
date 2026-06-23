@@ -2,12 +2,12 @@ services:
   iptv-downloader:
     image: ghcr.io/richrdj/iptv-downloader:latest
     container_name: iptv-downloader
-    stdin_open: true
-    tty: true
+    ports:
+      - "2233:2233"
     volumes:
       - iptv_config:/config
       - iptv_downloads:/downloads
-    restart: "no"
+    restart: unless-stopped
 
 volumes:
   iptv_config:

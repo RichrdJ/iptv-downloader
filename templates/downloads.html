@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<div class="page-header">
+  <h1>Downloads</h1>
+  <a href="/browse" class="btn btn-secondary btn-sm">+ Nieuwe download</a>
+</div>
+
+<div id="jobs"></div>
+
+<script>
+function pct(done, total) {
+  return total ? Math.round(done / total * 100) : 0;
+}
+
+function statusPill(s) {
+  const map = {running:'s-running',done:'s-done',starting:'s-starting',cancelled:'s-cancelled'};
+  const labels = {running:'Bezig',done:'Klaar',starting:'Start…',cancelled:'Geannuleerd'};
+  return `<span class="status-pill ${map[s]||'s-cancelled'}">${labels[s]||s}</span>`;
+}
+
+function renderJob(id, j) {
+  const p = pct(j.done, j.total);
+  const cur = j.current
+    ? `<div class="current-file">↓ ${j.current}</div>`
+    : '';
+  const cancelBtn = (j.status === 'running' || j.status === 'starting')
+    ? `<button class="btn btn-danger btn-sm" onclick="cancelJob('${id}')">Stop</button>`
+    : '';
+  return `
+    <div class="job-card" id="job-${id}">
+      <div class="job-header">
+        <div class="job-label">${j.label}</div>
+        <div style="display:flex;gap:.5rem;align-items:center">
+          ${statusPill(j.status)}
+          ${cancelBtn}
+        </div>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill" style="width:${p}%"></div>
+      </div>
+      <div class="progress-text">
+        ${j.done} / ${j.total} afleveringen
+        ${j.failed ? `<span style="color:#f87171;margin-left:.5rem">${j.failed} mislukt</span>` : ''}
+      </div>
+      ${cur}
+    </div>`;
+}
+
+async function cancelJob(id) {
+  await fetch(`/api/cancel/${id}`, {method:'POST'});
+}
+
+async function poll() {
+  try {
+    const r = await fetch('/api/downloads');
+    const data = await r.json();
+    const keys = Object.keys(data);
+    const el = document.getElementById('jobs');
+
+    if (!keys.length) {
+      el.innerHTML = `
+        <div class="empty">
+          <div class="icon">✅</div>
+          <p>Geen actieve downloads.<br>
+          <a href="/browse" style="color:#00d4ff">Browse series</a> om te beginnen.</p>
+        </div>`;
+    } else {
+      el.innerHTML = keys.map(id => renderJob(id, data[id])).join('');
+    }
+  } catch(e) {}
+  setTimeout(poll, 2000);
+}
+
+poll();
+</script>
+{% endblock %}

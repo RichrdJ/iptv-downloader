@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<h1>Connect to IPTV</h1>
+
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+<div class="card" style="max-width:500px">
+  <form method="POST" action="/connect">
+    <input type="hidden" name="action" value="login">
+    <input type="hidden" name="manual" value="{{ '1' if show_manual else '0' }}">
+
+    {% if not show_manual %}
+      <div class="form-group">
+        <label>M3U+ URL</label>
+        <input type="url" name="m3u_url"
+               placeholder="http://provider.com/get.php?username=X&password=Y&type=m3u_plus"
+               autofocus required>
+      </div>
+      <p style="font-size:.8rem;color:#555;margin:-0.5rem 0 1rem">
+        Of liever <a href="/?manual=1" style="color:#00d4ff;text-decoration:none">handmatig invoeren</a>
+      </p>
+    {% else %}
+      <div class="form-group">
+        <label>Server URL</label>
+        <input type="text" name="m3u_url" placeholder="http://example.com:8080" autofocus>
+      </div>
+      <div class="form-group">
+        <label>Gebruikersnaam</label>
+        <input type="text" name="username">
+      </div>
+      <div class="form-group">
+        <label>Wachtwoord</label>
+        <input type="password" name="password">
+      </div>
+      <p style="font-size:.8rem;color:#555;margin:-0.5rem 0 1rem">
+        <a href="/" style="color:#00d4ff;text-decoration:none">← M3U+ URL gebruiken</a>
+      </p>
+    {% endif %}
+
+    <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:1rem">
+      <input type="checkbox" name="save_account" id="save_cb">
+      <label for="save_cb" style="margin:0;cursor:pointer">Account opslaan</label>
+    </div>
+
+    <div id="name-row" style="display:none;margin-bottom:1rem">
+      <div class="form-group">
+        <label>Label (optioneel)</label>
+        <input type="text" name="account_name" placeholder="Mijn IPTV">
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Verbinden</button>
+  </form>
+</div>
+
+{% if accounts %}
+<hr class="divider">
+<h2>Opgeslagen accounts</h2>
+<div class="account-list">
+  {% for acc in accounts %}
+  <div class="account-row">
+    <span class="account-name">{{ acc.name }}</span>
+    <div style="display:flex;gap:.4rem">
+      <form method="POST" action="/connect">
+        <input type="hidden" name="action" value="select">
+        <input type="hidden" name="account_idx" value="{{ loop.index0 }}">
+        <button type="submit" class="btn btn-secondary btn-sm">Verbinden</button>
+      </form>
+      <form method="POST" action="/connect"
+            onsubmit="return confirm('Account verwijderen?')">
+        <input type="hidden" name="action" value="delete">
+        <input type="hidden" name="account_idx" value="{{ loop.index0 }}">
+        <button type="submit" class="btn btn-danger btn-sm">Verwijder</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<script>
+document.getElementById('save_cb').addEventListener('change', function(){
+  document.getElementById('name-row').style.display = this.checked ? 'block' : 'none';
+});
+</script>
+{% endblock %}

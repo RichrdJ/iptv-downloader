@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<div class="page-header">
+  <a href="/browse" class="btn btn-secondary btn-sm">← Terug</a>
+  <h1>{{ title }}</h1>
+  <span class="badge">{{ series_list | length }} series</span>
+</div>
+
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+{% if series_list %}
+<div class="series-grid">
+  {% for s in series_list %}
+  <a class="series-card" href="/series/{{ s.series_id }}">
+    <div class="name">{{ s.name }}</div>
+    {% if s.rating %}<div class="meta">★ {{ s.rating }}</div>{% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty">
+  <div class="icon">🔍</div>
+  <p>Geen series gevonden.</p>
+</div>
+{% endif %}
+
+{% endblock %}

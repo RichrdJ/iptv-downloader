@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<h1>Series bladeren</h1>
+
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+<form class="search-bar" action="/search" method="GET">
+  <input type="text" name="q" placeholder="Zoek op naam…" autofocus>
+  <button type="submit" class="btn btn-primary">Zoeken</button>
+</form>
+
+<h2>Categorieën</h2>
+
+{% if categories %}
+<div class="cat-grid">
+  {% for cat in categories %}
+  <a class="cat-item"
+     href="/category/{{ cat.category_id }}?name={{ cat.category_name | urlencode }}">
+    {{ cat.category_name }}
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty">
+  <div class="icon">📭</div>
+  <p>Geen categorieën gevonden.</p>
+</div>
+{% endif %}
+
+{% endblock %}

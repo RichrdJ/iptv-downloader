@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IPTV Downloader</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d0d0d;color:#e2e2e2;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
+
+/* Nav */
+nav{background:#141414;border-bottom:1px solid #242424;padding:0 1.5rem;display:flex;align-items:center;height:54px;gap:1.5rem;position:sticky;top:0;z-index:100}
+.brand{font-size:1rem;font-weight:700;color:#00d4ff;text-decoration:none;letter-spacing:.02em}
+nav a{color:#666;text-decoration:none;font-size:.875rem;transition:color .15s}
+nav a:hover{color:#e2e2e2}
+.spacer{flex:1}
+.acct-label{font-size:.75rem;color:#444;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Layout */
+main{max-width:1100px;margin:0 auto;padding:2rem 1.5rem}
+h1{font-size:1.4rem;font-weight:600;color:#fff;margin-bottom:1.5rem}
+h2{font-size:1.05rem;font-weight:600;color:#aaa;margin-bottom:.75rem}
+
+/* Alerts */
+.error{background:#1e0a0a;border:1px solid #4a1515;color:#f87171;padding:.75rem 1rem;border-radius:6px;margin-bottom:1.25rem;font-size:.875rem}
+
+/* Card */
+.card{background:#141414;border:1px solid #242424;border-radius:8px;padding:1.5rem}
+
+/* Inputs */
+.form-group{margin-bottom:1rem}
+label{display:block;font-size:.8rem;color:#777;margin-bottom:.35rem}
+input[type=text],input[type=password],input[type=url]{width:100%;background:#0d0d0d;border:1px solid #2e2e2e;color:#e2e2e2;padding:.6rem .85rem;border-radius:6px;font-size:.9rem;outline:none;transition:border-color .15s}
+input:focus{border-color:#00d4ff}
+input[type=checkbox]{width:auto;accent-color:#00d4ff}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:.35rem;padding:.5rem 1rem;border-radius:6px;border:none;font-size:.875rem;cursor:pointer;text-decoration:none;transition:background .15s,opacity .15s;font-family:inherit}
+.btn-primary{background:#00d4ff;color:#000;font-weight:600}
+.btn-primary:hover{background:#00bde0}
+.btn-secondary{background:#1e1e1e;color:#ccc;border:1px solid #2e2e2e}
+.btn-secondary:hover{background:#272727;color:#e2e2e2}
+.btn-danger{background:#2a1010;color:#f87171;border:1px solid #3a1515}
+.btn-danger:hover{background:#341515}
+.btn-success{background:#0a2a10;color:#4ade80;border:1px solid #153a1a}
+.btn-success:hover{background:#0d3315}
+.btn-sm{padding:.3rem .7rem;font-size:.78rem}
+
+/* Divider */
+hr.divider{border:none;border-top:1px solid #1e1e1e;margin:1.5rem 0}
+
+/* Badge */
+.badge{font-size:.72rem;padding:.2rem .5rem;border-radius:4px;background:#1e1e1e;color:#666}
+
+/* Categories */
+.cat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.6rem}
+.cat-item{display:block;background:#141414;border:1px solid #242424;border-radius:6px;padding:.7rem 1rem;color:#bbb;text-decoration:none;font-size:.875rem;transition:border-color .15s,color .15s}
+.cat-item:hover{border-color:#00d4ff;color:#fff}
+
+/* Search bar */
+.search-bar{display:flex;gap:.5rem;margin-bottom:1.5rem}
+.search-bar input{flex:1}
+
+/* Series grid */
+.series-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:.75rem}
+.series-card{display:block;background:#141414;border:1px solid #242424;border-radius:8px;padding:1rem;text-decoration:none;color:inherit;transition:border-color .15s,background .15s}
+.series-card:hover{border-color:#00d4ff;background:#171717}
+.series-card .name{font-size:.875rem;font-weight:500;color:#e2e2e2;line-height:1.35}
+.series-card .meta{font-size:.75rem;color:#555;margin-top:.3rem}
+
+/* Seasons */
+.season-list{display:flex;flex-direction:column;gap:.6rem}
+.season-row{display:flex;align-items:center;justify-content:space-between;background:#141414;border:1px solid #242424;border-radius:8px;padding:1rem 1.25rem}
+.season-title{font-weight:500;color:#e2e2e2;font-size:.9rem}
+.ep-count{font-size:.78rem;color:#555;margin-top:.2rem}
+
+/* Account list */
+.account-list{display:flex;flex-direction:column;gap:.5rem}
+.account-row{display:flex;align-items:center;justify-content:space-between;background:#141414;border:1px solid #242424;border-radius:6px;padding:.7rem 1rem}
+.account-name{font-size:.875rem;color:#bbb}
+
+/* Downloads */
+.job-card{background:#141414;border:1px solid #242424;border-radius:8px;padding:1.25rem;margin-bottom:.6rem}
+.job-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.75rem}
+.job-label{font-weight:500;color:#e2e2e2;font-size:.9rem}
+.status-pill{font-size:.72rem;padding:.25rem .6rem;border-radius:20px;font-weight:500}
+.s-running{background:#0a2533;color:#00d4ff}
+.s-done{background:#0a2010;color:#4ade80}
+.s-starting{background:#2a2010;color:#fbbf24}
+.s-cancelled{background:#1e1e1e;color:#666}
+.progress-bar{width:100%;height:5px;background:#1e1e1e;border-radius:3px;overflow:hidden;margin-bottom:.5rem}
+.progress-fill{height:100%;background:#00d4ff;border-radius:3px;transition:width .4s}
+.progress-text{font-size:.78rem;color:#555}
+.current-file{font-size:.78rem;color:#777;margin-top:.35rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Empty state */
+.empty{text-align:center;padding:4rem 2rem;color:#444}
+.empty .icon{font-size:2.5rem;margin-bottom:.75rem}
+
+/* Page header row */
+.page-header{display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem;flex-wrap:wrap}
+.page-header h1{margin:0}
+
+@media(max-width:600px){
+  nav{gap:1rem}
+  .series-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <a class="brand" href="/">&#9660; IPTV Downloader</a>
+  {% if session.get('server') %}
+  <a href="/browse">Browse</a>
+  <a href="/downloads">Downloads</a>
+  <div class="spacer"></div>
+  <span class="acct-label">{{ session.get('account_name','') }}</span>
+  <a href="/logout">Logout</a>
+  {% endif %}
+</nav>
+
+<main>
+{% block content %}{% endblock %}
+</main>
+
+</body>
+</html>
