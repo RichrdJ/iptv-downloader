@@ -1,0 +1,19 @@
+services:
+  iptv-downloader:
+    build: .
+    image: iptv-downloader
+    container_name: iptv-downloader
+    stdin_open: true   # keep stdin open for interactive CLI
+    tty: true          # allocate a TTY for rich terminal output
+    volumes:
+      - ./config:/config       # persists saved accounts between runs
+      - ./downloads:/downloads # where episodes are saved
+    # Optional: pass credentials directly via environment variables
+    # and command-line args instead of the interactive menu:
+    #
+    # command: ["--server", "http://your-server:8080",
+    #           "--username", "user",
+    #           "--password", "pass"]
+    #
+    # Or with an M3U+ URL:
+    # command: ["--m3u-url", "http://your-server/get.php?username=X&password=Y&type=m3u_plus"]
