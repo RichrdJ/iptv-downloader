@@ -13,7 +13,7 @@
   {% for season_num, episodes in seasons_data %}
   <div class="season-block">
 
-    <button class="season-toggle" onclick="toggle('s{{ season_num }}')">
+    <button class="season-toggle" onclick="toggleSeason('s{{ season_num }}')">
       <div>
         <span class="season-title">Seizoen {{ season_num }}</span>
         <span class="ep-count">{{ episodes | length }} aflevering{{ 'en' if episodes | length != 1 else '' }}</span>
@@ -23,15 +23,25 @@
 
     <div class="episode-list" id="s{{ season_num }}">
       {% for ep in episodes %}
-      <div class="ep-row">
+      <div class="ep-row" id="row-{{ ep.id }}">
         <div class="ep-info">
           <span class="ep-num">E{{ '%02d' % ep.episode_num }}</span>
           <span class="ep-title">{{ ep.title or '—' }}</span>
         </div>
-        <a class="btn btn-success btn-sm"
-           href="/stream/{{ ep.id }}?ext={{ ep.container_extension }}&filename={{ ep._filename | urlencode }}">
+        <button class="btn btn-success btn-sm"
+                onclick="showRename('{{ ep.id }}',
+                                    '{{ ep.container_extension }}',
+                                    {{ ep._filename | tojson }})">
           ↓ Download
-        </a>
+        </button>
+      </div>
+
+      <!-- Inline rename bar (hidden by default) -->
+      <div class="rename-bar" id="rename-{{ ep.id }}" style="display:none">
+        <input type="text" id="fname-{{ ep.id }}" spellcheck="false">
+        <a class="btn btn-primary btn-sm" id="dlbtn-{{ ep.id }}">Downloaden</a>
+        <button class="btn btn-secondary btn-sm"
+                onclick="hideRename('{{ ep.id }}')">Annuleer</button>
       </div>
       {% endfor %}
     </div>
@@ -48,41 +58,64 @@
 
 <style>
 .seasons-wrap{display:flex;flex-direction:column;gap:.5rem}
-
 .season-block{background:#141414;border:1px solid #242424;border-radius:8px;overflow:hidden}
-
-.season-toggle{
-  width:100%;display:flex;align-items:center;justify-content:space-between;
-  padding:1rem 1.25rem;background:none;border:none;cursor:pointer;color:inherit;
-  text-align:left;transition:background .15s
-}
+.season-toggle{width:100%;display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;background:none;border:none;cursor:pointer;color:inherit;text-align:left;transition:background .15s}
 .season-toggle:hover{background:#1a1a1a}
-
 .season-title{font-weight:500;color:#e2e2e2;font-size:.9rem;margin-right:.75rem}
 .ep-count{font-size:.78rem;color:#555}
 .chevron{color:#444;font-size:.75rem;transition:transform .2s;display:inline-block}
-
 .episode-list{display:none;border-top:1px solid #1e1e1e}
-
-.ep-row{
-  display:flex;align-items:center;justify-content:space-between;
-  padding:.65rem 1.25rem;border-bottom:1px solid #1a1a1a;gap:1rem
-}
+.ep-row{display:flex;align-items:center;justify-content:space-between;padding:.65rem 1.25rem;border-bottom:1px solid #1a1a1a;gap:1rem}
 .ep-row:last-child{border-bottom:none}
 .ep-row:hover{background:#181818}
-
 .ep-info{display:flex;align-items:center;gap:.75rem;min-width:0;flex:1}
 .ep-num{font-size:.78rem;color:#555;font-variant-numeric:tabular-nums;flex-shrink:0}
 .ep-title{font-size:.875rem;color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Rename bar */
+.rename-bar{display:flex;align-items:center;gap:.5rem;padding:.6rem 1.25rem;background:#0f1a0f;border-bottom:1px solid #1e1e1e;flex-wrap:wrap}
+.rename-bar input{flex:1;min-width:200px;font-family:monospace;font-size:.82rem;background:#0d0d0d;border:1px solid #2e4a2e;color:#e2e2e2;padding:.4rem .7rem;border-radius:5px;outline:none}
+.rename-bar input:focus{border-color:#4ade80}
 </style>
 
 <script>
-function toggle(id) {
+function toggleSeason(id) {
   const el   = document.getElementById(id);
   const chev = document.getElementById('chev-' + id);
   const open = el.style.display === 'block';
-  el.style.display   = open ? 'none' : 'block';
+  el.style.display     = open ? 'none' : 'block';
   chev.style.transform = open ? '' : 'rotate(90deg)';
+}
+
+function showRename(epId, ext, defaultName) {
+  // Hide any other open rename bars first
+  document.querySelectorAll('.rename-bar').forEach(b => b.style.display = 'none');
+
+  const bar   = document.getElementById('rename-' + epId);
+  const input = document.getElementById('fname-' + epId);
+  const dlBtn = document.getElementById('dlbtn-' + epId);
+
+  input.value = defaultName;
+  bar.style.display = 'flex';
+  input.focus();
+  // Select the name part (without extension) for easy editing
+  const dotIdx = input.value.lastIndexOf('.');
+  input.setSelectionRange(0, dotIdx > 0 ? dotIdx : input.value.length);
+
+  function startDownload() {
+    const filename = input.value.trim() || defaultName;
+    const url = '/stream/' + epId + '?ext=' + encodeURIComponent(ext)
+              + '&filename=' + encodeURIComponent(filename);
+    window.location.href = url;
+    bar.style.display = 'none';
+  }
+
+  dlBtn.onclick = startDownload;
+  input.onkeydown = e => { if (e.key === 'Enter') startDownload(); if (e.key === 'Escape') hideRename(epId); };
+}
+
+function hideRename(epId) {
+  document.getElementById('rename-' + epId).style.display = 'none';
 }
 </script>
 

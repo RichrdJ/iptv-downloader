@@ -28,12 +28,13 @@ READ_TIMEOUT       = 30
 
 def sanitize(name: str) -> str:
     name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', name)
-    return re.sub(r'\s+', ' ', name).strip() or 'Unknown'
+    name = re.sub(r'\s+', '.', name).strip('.') or 'Unknown'
+    return name
 
 
 def episode_filename(show: str, season: int, ep: int, title: str, ext: str) -> str:
-    title_part = f' - {sanitize(title)}' if title and title.strip() else ''
-    return f'{sanitize(show)} - S{season:02d}E{ep:02d}{title_part}.{ext}'
+    title_part = f'.{sanitize(title)}' if title and title.strip() else ''
+    return f'{sanitize(show)}.S{season:02d}E{ep:02d}{title_part}.{ext}'
 
 
 def parse_m3u_url(url: str):
