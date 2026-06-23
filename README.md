@@ -1,4 +1,6 @@
-# IPTV Series Downloader
+<p align="center">
+  <img src="banner.svg" alt="IPTV Downloader" width="100%"/>
+</p>
 
 Een zelfgehoste web-applicatie om series van Xtream IPTV providers te downloaden. Selecteer een seizoen of download een hele serie in één klik. Draait als Docker container.
 

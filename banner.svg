@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="280" viewBox="0 0 1200 280">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0d0d0d"/>
+      <stop offset="100%" style="stop-color:#111820"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#00d4ff;stop-opacity:0"/>
+      <stop offset="50%" style="stop-color:#00d4ff;stop-opacity:0.15"/>
+      <stop offset="100%" style="stop-color:#00d4ff;stop-opacity:0"/>
+    </linearGradient>
+    <filter id="blur">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="280" fill="url(#bg)" rx="12"/>
+
+  <!-- Subtle border -->
+  <rect width="1200" height="280" fill="none" stroke="#1e2a33" stroke-width="1.5" rx="12"/>
+
+  <!-- Glow strip -->
+  <rect x="100" y="0" width="1000" height="2" fill="url(#glow)" rx="1"/>
+
+  <!-- Ambient glow blob -->
+  <ellipse cx="600" cy="100" rx="320" ry="80" fill="#00d4ff" opacity="0.04" filter="url(#blur)"/>
+
+  <!-- Grid lines (subtle) -->
+  <g stroke="#ffffff" stroke-width="0.4" opacity="0.03">
+    <line x1="0" y1="56" x2="1200" y2="56"/>
+    <line x1="0" y1="112" x2="1200" y2="112"/>
+    <line x1="0" y1="168" x2="1200" y2="168"/>
+    <line x1="0" y1="224" x2="1200" y2="224"/>
+    <line x1="200" y1="0" x2="200" y2="280"/>
+    <line x1="400" y1="0" x2="400" y2="280"/>
+    <line x1="600" y1="0" x2="600" y2="280"/>
+    <line x1="800" y1="0" x2="800" y2="280"/>
+    <line x1="1000" y1="0" x2="1000" y2="280"/>
+  </g>
+
+  <!-- Download arrow icon -->
+  <g transform="translate(148, 100)">
+    <rect x="-36" y="-36" width="72" height="72" rx="16" fill="#00d4ff" opacity="0.1"/>
+    <rect x="-36" y="-36" width="72" height="72" rx="16" fill="none" stroke="#00d4ff" stroke-width="1" opacity="0.3"/>
+    <!-- Arrow down -->
+    <line x1="0" y1="-16" x2="0" y2="10" stroke="#00d4ff" stroke-width="3.5" stroke-linecap="round"/>
+    <polyline points="-10,2 0,14 10,2" fill="none" stroke="#00d4ff" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <!-- Base line -->
+    <line x1="-14" y1="20" x2="14" y2="20" stroke="#00d4ff" stroke-width="3.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- Main title -->
+  <text x="222" y="118" font-family="'Segoe UI', system-ui, -apple-system, sans-serif"
+        font-size="58" font-weight="700" fill="#ffffff" letter-spacing="-1">
+    IPTV
+    <tspan fill="#00d4ff"> Downloader</tspan>
+  </text>
+
+  <!-- Subtitle -->
+  <text x="224" y="158" font-family="'Segoe UI', system-ui, sans-serif"
+        font-size="20" fill="#4a6a7a" letter-spacing="0.3">
+    Bulk download series &amp; seizoenen via Xtream IPTV — Docker · Web UI · Browser downloads
+  </text>
+
+  <!-- Divider -->
+  <line x1="224" y1="180" x2="980" y2="180" stroke="#1a2a35" stroke-width="1"/>
+
+  <!-- Feature pills -->
+  <g font-family="'Segoe UI', system-ui, sans-serif" font-size="13" font-weight="500">
+
+    <!-- Flask -->
+    <rect x="224" y="196" width="80" height="28" rx="14" fill="#0a2533" stroke="#00d4ff22" stroke-width="1"/>
+    <text x="264" y="214" fill="#00d4ff" text-anchor="middle">Flask</text>
+
+    <!-- Python -->
+    <rect x="314" y="196" width="90" height="28" rx="14" fill="#0a2533" stroke="#00d4ff22" stroke-width="1"/>
+    <text x="359" y="214" fill="#00d4ff" text-anchor="middle">Python 3</text>
+
+    <!-- Docker -->
+    <rect x="414" y="196" width="82" height="28" rx="14" fill="#0a2533" stroke="#00d4ff22" stroke-width="1"/>
+    <text x="455" y="214" fill="#00d4ff" text-anchor="middle">Docker</text>
+
+    <!-- ffmpeg -->
+    <rect x="506" y="196" width="82" height="28" rx="14" fill="#0a2533" stroke="#00d4ff22" stroke-width="1"/>
+    <text x="547" y="214" fill="#00d4ff" text-anchor="middle">ffmpeg</text>
+
+    <!-- Xtream API -->
+    <rect x="598" y="196" width="106" height="28" rx="14" fill="#0a2533" stroke="#00d4ff22" stroke-width="1"/>
+    <text x="651" y="214" fill="#00d4ff" text-anchor="middle">Xtream API</text>
+
+    <!-- GPL-3.0 -->
+    <rect x="714" y="196" width="88" height="28" rx="14" fill="#0a2533" stroke="#00d4ff22" stroke-width="1"/>
+    <text x="758" y="214" fill="#00d4ff" text-anchor="middle">GPL-3.0</text>
+  </g>
+
+  <!-- Version tag top-right -->
+  <rect x="1096" y="18" width="84" height="26" rx="13" fill="#0a2533" stroke="#00d4ff33" stroke-width="1"/>
+  <text x="1138" y="35" font-family="'Segoe UI', monospace, sans-serif" font-size="12"
+        fill="#00d4ff" text-anchor="middle" font-weight="600">v1.7.2</text>
+</svg>
