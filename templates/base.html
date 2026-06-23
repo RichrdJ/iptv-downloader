@@ -11,7 +11,7 @@ body{background:#0d0d0d;color:#e2e2e2;font-family:-apple-system,BlinkMacSystemFo
 /* Nav */
 nav{background:#141414;border-bottom:1px solid #242424;padding:0 1.5rem;display:flex;align-items:center;height:54px;gap:1.5rem;position:sticky;top:0;z-index:100}
 .brand{font-size:1rem;font-weight:700;color:#00d4ff;text-decoration:none;letter-spacing:.02em}
-nav a{color:#666;text-decoration:none;font-size:.875rem;transition:color .15s}
+nav a{color:#999;text-decoration:none;font-size:.875rem;transition:color .15s}
 nav a:hover{color:#e2e2e2}
 .nav-badge{background:#00d4ff;color:#000;font-size:.65rem;font-weight:700;padding:.1rem .35rem;border-radius:8px;vertical-align:middle;margin-left:.2rem}
 .spacer{flex:1}
@@ -112,7 +112,6 @@ hr.divider{border:none;border-top:1px solid #1e1e1e;margin:1.5rem 0}
 
 <nav>
   <a class="brand" href="/">&#9660; IPTV Downloader</a>
-  <span style="font-size:.7rem;color:#333;margin-left:-.75rem">v{{ version }}</span>
   {% if session.get('server') %}
   <a href="/browse">Series</a>
   <a href="/movies">Films</a>
@@ -127,6 +126,8 @@ hr.divider{border:none;border-top:1px solid #1e1e1e;margin:1.5rem 0}
 <main>
 {% block content %}{% endblock %}
 </main>
+
+<footer style="text-align:center;padding:1.5rem;font-size:.7rem;color:#2a2a2a">IPTV Downloader v{{ version }}</footer>
 
 </body>
 </html>
