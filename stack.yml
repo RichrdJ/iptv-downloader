@@ -1,13 +1,17 @@
 services:
   iptv-downloader:
     image: ghcr.io/richrdj/iptv-downloader:latest
-    container_name: iptv-downloader
     ports:
-      - "2233:2233"
+      - target: 2233
+        published: 2233
+        mode: host
     volumes:
       - iptv_config:/config
       - iptv_downloads:/downloads
-    restart: unless-stopped
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
 
 volumes:
   iptv_config:
