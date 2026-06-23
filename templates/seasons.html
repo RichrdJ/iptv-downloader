@@ -8,39 +8,82 @@
 
 {% if error %}<div class="error">{{ error }}</div>{% endif %}
 
-{% if season_info %}
+{% if seasons_data %}
+<div class="seasons-wrap">
+  {% for season_num, episodes in seasons_data %}
+  <div class="season-block">
 
-<form method="POST" action="/download" style="margin-bottom:1.25rem">
-  <input type="hidden" name="series_id" value="{{ series_id }}">
-  <input type="hidden" name="season" value="all">
-  <button type="submit" class="btn btn-primary">
-    ↓ Alle seizoenen downloaden
-  </button>
-</form>
-
-<div class="season-list">
-  {% for season_num, ep_count in season_info %}
-  <div class="season-row">
-    <div>
-      <div class="season-title">Seizoen {{ season_num }}</div>
-      <div class="ep-count">
-        {{ ep_count }} aflevering{{ 'en' if ep_count != 1 else '' }}
+    <button class="season-toggle" onclick="toggle('s{{ season_num }}')">
+      <div>
+        <span class="season-title">Seizoen {{ season_num }}</span>
+        <span class="ep-count">{{ episodes | length }} aflevering{{ 'en' if episodes | length != 1 else '' }}</span>
       </div>
+      <span class="chevron" id="chev-s{{ season_num }}">▶</span>
+    </button>
+
+    <div class="episode-list" id="s{{ season_num }}">
+      {% for ep in episodes %}
+      <div class="ep-row">
+        <div class="ep-info">
+          <span class="ep-num">E{{ '%02d' % ep.episode_num }}</span>
+          <span class="ep-title">{{ ep.title or '—' }}</span>
+        </div>
+        <a class="btn btn-success btn-sm"
+           href="/stream/{{ ep.id }}?ext={{ ep.container_extension }}&filename={{ ep._filename | urlencode }}">
+          ↓ Download
+        </a>
+      </div>
+      {% endfor %}
     </div>
-    <form method="POST" action="/download">
-      <input type="hidden" name="series_id" value="{{ series_id }}">
-      <input type="hidden" name="season" value="{{ season_num }}">
-      <button type="submit" class="btn btn-success">↓ Download</button>
-    </form>
+
   </div>
   {% endfor %}
 </div>
-
 {% else %}
 <div class="empty">
   <div class="icon">📭</div>
   <p>Geen afleveringen gevonden.</p>
 </div>
 {% endif %}
+
+<style>
+.seasons-wrap{display:flex;flex-direction:column;gap:.5rem}
+
+.season-block{background:#141414;border:1px solid #242424;border-radius:8px;overflow:hidden}
+
+.season-toggle{
+  width:100%;display:flex;align-items:center;justify-content:space-between;
+  padding:1rem 1.25rem;background:none;border:none;cursor:pointer;color:inherit;
+  text-align:left;transition:background .15s
+}
+.season-toggle:hover{background:#1a1a1a}
+
+.season-title{font-weight:500;color:#e2e2e2;font-size:.9rem;margin-right:.75rem}
+.ep-count{font-size:.78rem;color:#555}
+.chevron{color:#444;font-size:.75rem;transition:transform .2s;display:inline-block}
+
+.episode-list{display:none;border-top:1px solid #1e1e1e}
+
+.ep-row{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:.65rem 1.25rem;border-bottom:1px solid #1a1a1a;gap:1rem
+}
+.ep-row:last-child{border-bottom:none}
+.ep-row:hover{background:#181818}
+
+.ep-info{display:flex;align-items:center;gap:.75rem;min-width:0;flex:1}
+.ep-num{font-size:.78rem;color:#555;font-variant-numeric:tabular-nums;flex-shrink:0}
+.ep-title{font-size:.875rem;color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+</style>
+
+<script>
+function toggle(id) {
+  const el   = document.getElementById(id);
+  const chev = document.getElementById('chev-' + id);
+  const open = el.style.display === 'block';
+  el.style.display   = open ? 'none' : 'block';
+  chev.style.transform = open ? '' : 'rotate(90deg)';
+}
+</script>
 
 {% endblock %}

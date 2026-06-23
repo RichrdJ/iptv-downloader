@@ -4,14 +4,12 @@
 import os
 import re
 import json
-import threading
-import uuid
-import subprocess
 from pathlib import Path
+from urllib.parse import quote
 
 import requests as http
-from flask import (Flask, render_template, request,
-                   redirect, url_for, session, jsonify)
+from flask import (Flask, render_template, request, redirect,
+                   url_for, session, Response, stream_with_context)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
@@ -22,9 +20,6 @@ CONFIG_FILE  = CONFIG_DIR / 'accounts.json'
 
 CONNECTION_TIMEOUT = 10
 READ_TIMEOUT       = 30
-
-_dl_lock = threading.Lock()
-_downloads: dict = {}   # job_id -> {...}
 
 
 # ---------------------------------------------------------------------------
@@ -126,58 +121,6 @@ def delete_account(idx):
 
 
 # ---------------------------------------------------------------------------
-# Download worker
-# ---------------------------------------------------------------------------
-
-def _worker(job_id, client, episodes, show_name, out_dir: Path):
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    with _dl_lock:
-        _downloads[job_id].update(total=len(episodes), done=0, failed=0,
-                                   status='running', current=None)
-
-    for ep in episodes:
-        with _dl_lock:
-            if _downloads[job_id].get('cancelled'):
-                break
-
-        season = int(ep.get('season', 1))
-        ep_num = int(ep.get('episode_num', 1))
-        title  = ep.get('title', '') or ''
-        ext    = ep.get('container_extension', 'mkv')
-        ep_id  = ep.get('id')
-
-        filename = episode_filename(show_name, season, ep_num, title, ext)
-        filepath = out_dir / filename
-
-        with _dl_lock:
-            _downloads[job_id]['current'] = filename
-
-        if filepath.exists():
-            with _dl_lock:
-                _downloads[job_id]['done'] += 1
-            continue
-
-        url = client.stream_url(ep_id, ext)
-        cmd = ['ffmpeg', '-hide_banner', '-loglevel', 'error',
-               '-i', url, '-c', 'copy', '-y', str(filepath)]
-
-        result = subprocess.run(cmd, capture_output=True, text=True)
-
-        with _dl_lock:
-            if result.returncode == 0:
-                _downloads[job_id]['done'] += 1
-            else:
-                _downloads[job_id]['failed'] += 1
-                if filepath.exists():
-                    filepath.unlink()
-
-    with _dl_lock:
-        _downloads[job_id]['status']  = 'done'
-        _downloads[job_id]['current'] = None
-
-
-# ---------------------------------------------------------------------------
 # Routes — auth
 # ---------------------------------------------------------------------------
 
@@ -207,7 +150,7 @@ def connect():
         return redirect(url_for('index'))
 
     # action == 'login'
-    raw = request.form.get('m3u_url', '').strip()
+    raw    = request.form.get('m3u_url', '').strip()
     manual = request.form.get('manual') == '1'
 
     if manual or not raw.startswith('http') or 'get.php' not in raw:
@@ -217,20 +160,20 @@ def connect():
         if not server or not username:
             return render_template('login.html', accounts=load_accounts(),
                                    show_manual=True,
-                                   error='Server URL and username are required.')
+                                   error='Server URL en gebruikersnaam zijn verplicht.')
     else:
         parsed = parse_m3u_url(raw)
         if not parsed:
             return render_template('login.html', accounts=load_accounts(),
                                    show_manual=False,
-                                   error='Invalid M3U+ URL. Expected: http://host/get.php?username=X&password=Y')
+                                   error='Ongeldige M3U+ URL. Verwacht: http://host/get.php?username=X&password=Y')
         server, username, password = parsed
 
     client = XtreamClient(server, username, password)
     if not client.authenticate():
         return render_template('login.html', accounts=load_accounts(),
                                show_manual=manual or 'get.php' not in raw,
-                               error='Authentication failed — check your credentials.')
+                               error='Authenticatie mislukt — controleer je gegevens.')
 
     session.update(server=server, username=username, password=password,
                    account_name=f'{username}@{server}')
@@ -259,7 +202,7 @@ def browse():
     if not client:
         return redirect(url_for('index'))
     try:
-        cats = client.categories()
+        cats  = client.categories()
         error = None
     except Exception as e:
         cats, error = [], str(e)
@@ -273,10 +216,10 @@ def category(cat_id):
         return redirect(url_for('index'))
     try:
         series_list = client.series(cat_id)
-        cat_name    = request.args.get('name', 'Category')
+        cat_name    = request.args.get('name', 'Categorie')
         error = None
     except Exception as e:
-        series_list, cat_name, error = [], 'Error', str(e)
+        series_list, cat_name, error = [], 'Fout', str(e)
     return render_template('series_list.html', series_list=series_list,
                            title=cat_name, error=error)
 
@@ -291,11 +234,11 @@ def search():
         return redirect(url_for('browse'))
     try:
         results = [s for s in client.series() if q in s.get('name', '').lower()]
-        error = None
+        error   = None
     except Exception as e:
         results, error = [], str(e)
     return render_template('series_list.html', series_list=results,
-                           title=f'Search: {q}', error=error)
+                           title=f'Zoeken: {q}', error=error)
 
 
 @app.route('/series/<int:series_id>')
@@ -308,73 +251,68 @@ def series(series_id):
         show_name = info.get('info', {}).get('name', 'Unknown')
         eps_by_s  = info.get('episodes', {})
         seasons   = sorted(eps_by_s.keys(), key=lambda x: int(x))
-        season_info = [(s, len(eps_by_s[s])) for s in seasons]
+
+        # Build list: (season_num, [episode_dicts_with_filename])
+        seasons_data = []
+        for s in seasons:
+            eps = []
+            for ep in eps_by_s[s]:
+                ep = dict(ep)
+                ep['_filename'] = episode_filename(
+                    show_name,
+                    int(ep.get('season', 1)),
+                    int(ep.get('episode_num', 1)),
+                    ep.get('title', '') or '',
+                    ep.get('container_extension', 'mkv')
+                )
+                eps.append(ep)
+            seasons_data.append((s, eps))
+
         error = None
     except Exception as e:
-        show_name, season_info, error = 'Error', [], str(e)
-    return render_template('seasons.html', series_name=show_name,
-                           season_info=season_info, series_id=series_id, error=error)
+        show_name, seasons_data, error = 'Fout', [], str(e)
+
+    return render_template('seasons.html',
+                           series_name=show_name,
+                           seasons_data=seasons_data,
+                           error=error)
 
 
 # ---------------------------------------------------------------------------
-# Routes — download
+# Route — stream episode to browser
 # ---------------------------------------------------------------------------
 
-@app.route('/download', methods=['POST'])
-def start_download():
+@app.route('/stream/<ep_id>')
+def stream_episode(ep_id):
     client = get_client()
     if not client:
         return redirect(url_for('index'))
 
-    series_id  = int(request.form.get('series_id'))
-    season_key = request.form.get('season')   # '1', '2', … or 'all'
+    ext      = request.args.get('ext', 'mkv')
+    filename = request.args.get('filename', f'episode.{ext}')
+    url      = client.stream_url(ep_id, ext)
 
     try:
-        info      = client.series_info(series_id)
-        show_name = info.get('info', {}).get('name', 'Unknown')
-        eps_by_s  = info.get('episodes', {})
+        upstream = http.get(url, stream=True,
+                            timeout=(CONNECTION_TIMEOUT, None),
+                            headers={'User-Agent': 'IPTV-Downloader/1.0'})
+        upstream.raise_for_status()
+    except Exception as e:
+        return f'Stream fout: {e}', 502
 
-        if season_key == 'all':
-            episodes = []
-            for k in sorted(eps_by_s.keys(), key=lambda x: int(x)):
-                episodes.extend(eps_by_s[k])
-        else:
-            episodes = eps_by_s.get(season_key, [])
-    except Exception:
-        return redirect(url_for('series', series_id=series_id))
+    def generate():
+        for chunk in upstream.iter_content(chunk_size=1024 * 64):
+            if chunk:
+                yield chunk
 
-    out_dir  = DOWNLOAD_DIR / sanitize(show_name)
-    job_id   = str(uuid.uuid4())[:8]
-    label    = f"{show_name} — {'All seasons' if season_key == 'all' else f'Season {season_key}'}"
+    headers = {
+        'Content-Disposition': f"attachment; filename*=UTF-8''{quote(filename)}",
+        'Content-Type': upstream.headers.get('Content-Type', 'application/octet-stream'),
+    }
+    if 'Content-Length' in upstream.headers:
+        headers['Content-Length'] = upstream.headers['Content-Length']
 
-    with _dl_lock:
-        _downloads[job_id] = {'label': label, 'total': len(episodes),
-                               'done': 0, 'failed': 0, 'status': 'starting', 'current': None}
-
-    threading.Thread(target=_worker,
-                     args=(job_id, client, episodes, show_name, out_dir),
-                     daemon=True).start()
-
-    return redirect(url_for('downloads'))
-
-
-@app.route('/downloads')
-def downloads():
-    return render_template('downloads.html')
-
-
-@app.route('/api/downloads')
-def api_downloads():
-    with _dl_lock:
-        return jsonify(dict(_downloads))
-
-
-@app.route('/api/cancel/<job_id>', methods=['POST'])
-def cancel(job_id):
-    with _dl_lock:
-        if job_id in _downloads:
-            _downloads[job_id]['cancelled'] = True
-    return jsonify(ok=True)
+    return Response(stream_with_context(generate()), headers=headers)
 
 
 if __name__ == '__main__':
