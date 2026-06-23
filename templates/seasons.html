@@ -14,7 +14,11 @@
   <div class="season-block">
 
     <button class="season-toggle" onclick="toggleSeason('s{{ season_num }}')">
-      <div>
+      <div style="display:flex;align-items:center;gap:.75rem">
+        <input type="checkbox" class="season-cb"
+               data-season="{{ season_num }}"
+               onclick="event.stopPropagation(); toggleSeasonCb(this)"
+               title="Selecteer heel seizoen {{ season_num }}">
         <span class="season-title">Seizoen {{ season_num }}</span>
         <span class="ep-count">{{ episodes | length }} aflevering{{ 'en' if episodes | length != 1 else '' }}</span>
       </div>
@@ -25,6 +29,12 @@
       {% for ep in episodes %}
       <div class="ep-row">
         <div class="ep-info">
+          <input type="checkbox" class="ep-cb"
+                 data-season="{{ season_num }}"
+                 data-ep-id="{{ ep.id }}"
+                 data-ext="{{ ep.container_extension }}"
+                 data-filename="{{ ep._filename }}"
+                 onchange="updateBar()">
           <span class="ep-num">E{{ '%02d' % ep.episode_num }}</span>
           <span class="ep-title">{{ ep.title or '—' }}</span>
         </div>
@@ -32,16 +42,15 @@
                 data-ep-id="{{ ep.id }}"
                 data-ext="{{ ep.container_extension }}"
                 data-filename="{{ ep._filename }}">
-          ↓ Download
+          ↓
         </button>
       </div>
 
-      <!-- Inline rename bar -->
+      <!-- Inline rename bar for single download -->
       <div class="rename-bar" id="rename-{{ ep.id }}" style="display:none">
         <input type="text" id="fname-{{ ep.id }}" spellcheck="false">
         <button class="btn btn-primary btn-sm" id="dlbtn-{{ ep.id }}">Downloaden</button>
-        <button class="btn btn-secondary btn-sm"
-                onclick="hideRename('{{ ep.id }}')">Annuleer</button>
+        <button class="btn btn-secondary btn-sm" onclick="hideRename('{{ ep.id }}')">✕</button>
       </div>
       {% endfor %}
     </div>
@@ -56,27 +65,67 @@
 </div>
 {% endif %}
 
+<!-- Sticky multi-download bar -->
+<div id="dl-bar">
+  <span id="dl-label">0 geselecteerd</span>
+  <div style="display:flex;gap:.5rem;align-items:center">
+    <button class="btn btn-secondary btn-sm" onclick="clearSelection()">Deselecteer</button>
+    <button class="btn btn-primary" id="dl-start">↓ Download alles</button>
+  </div>
+</div>
+
+<!-- Download status overlay -->
+<div id="dl-overlay" style="display:none">
+  <div id="dl-progress-box">
+    <div id="dl-progress-title">Downloaden…</div>
+    <div class="progress-bar" style="margin:.75rem 0">
+      <div class="progress-fill" id="dl-progress-fill" style="width:0%"></div>
+    </div>
+    <div id="dl-progress-text" style="font-size:.8rem;color:#666"></div>
+    <button class="btn btn-secondary btn-sm" style="margin-top:1rem" onclick="closeOverlay()">Sluiten</button>
+  </div>
+</div>
+
 <style>
-.seasons-wrap{display:flex;flex-direction:column;gap:.5rem}
+.seasons-wrap{display:flex;flex-direction:column;gap:.5rem;padding-bottom:80px}
 .season-block{background:#141414;border:1px solid #242424;border-radius:8px;overflow:hidden}
-.season-toggle{width:100%;display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;background:none;border:none;cursor:pointer;color:inherit;text-align:left;transition:background .15s}
+.season-toggle{width:100%;display:flex;align-items:center;justify-content:space-between;padding:.85rem 1.25rem;background:none;border:none;cursor:pointer;color:inherit;text-align:left;transition:background .15s}
 .season-toggle:hover{background:#1a1a1a}
-.season-title{font-weight:500;color:#e2e2e2;font-size:.9rem;margin-right:.75rem}
+.season-title{font-weight:500;color:#e2e2e2;font-size:.9rem}
 .ep-count{font-size:.78rem;color:#555}
 .chevron{color:#444;font-size:.75rem;transition:transform .2s;display:inline-block}
 .episode-list{display:none;border-top:1px solid #1e1e1e}
-.ep-row{display:flex;align-items:center;justify-content:space-between;padding:.65rem 1.25rem;border-bottom:1px solid #1a1a1a;gap:1rem}
+.ep-row{display:flex;align-items:center;justify-content:space-between;padding:.6rem 1.25rem;border-bottom:1px solid #1a1a1a;gap:1rem}
 .ep-row:last-child{border-bottom:none}
 .ep-row:hover{background:#181818}
-.ep-info{display:flex;align-items:center;gap:.75rem;min-width:0;flex:1}
+.ep-info{display:flex;align-items:center;gap:.65rem;min-width:0;flex:1}
 .ep-num{font-size:.78rem;color:#555;font-variant-numeric:tabular-nums;flex-shrink:0}
 .ep-title{font-size:.875rem;color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+input[type=checkbox]{width:15px;height:15px;cursor:pointer;flex-shrink:0;accent-color:#00d4ff}
+
 .rename-bar{display:flex;align-items:center;gap:.5rem;padding:.6rem 1.25rem;background:#0f1a0f;border-bottom:1px solid #1e1e1e;flex-wrap:wrap}
 .rename-bar input{flex:1;min-width:200px;font-family:monospace;font-size:.82rem;background:#0d0d0d;border:1px solid #2e4a2e;color:#e2e2e2;padding:.4rem .7rem;border-radius:5px;outline:none}
 .rename-bar input:focus{border-color:#4ade80}
+
+/* Sticky download bar */
+#dl-bar{
+  display:none;position:fixed;bottom:0;left:0;right:0;
+  background:#141414;border-top:1px solid #00d4ff33;
+  padding:.75rem 1.5rem;
+  display:none;
+  flex-direction:row;align-items:center;justify-content:space-between;
+  z-index:200;box-shadow:0 -4px 20px #00000066
+}
+#dl-label{font-size:.9rem;color:#e2e2e2;font-weight:500}
+
+/* Progress overlay */
+#dl-overlay{position:fixed;inset:0;background:#000000cc;z-index:300;display:flex;align-items:center;justify-content:center}
+#dl-progress-box{background:#141414;border:1px solid #242424;border-radius:10px;padding:2rem;min-width:320px;max-width:480px;width:90%}
+#dl-progress-title{font-weight:600;color:#e2e2e2;margin-bottom:.25rem}
 </style>
 
 <script>
+// ---- Season accordion ----
 function toggleSeason(id) {
   const el   = document.getElementById(id);
   const chev = document.getElementById('chev-' + id);
@@ -85,6 +134,114 @@ function toggleSeason(id) {
   chev.style.transform = open ? '' : 'rotate(90deg)';
 }
 
+// ---- Season checkbox selects all episodes in that season ----
+function toggleSeasonCb(cb) {
+  const season = cb.dataset.season;
+  const epCbs  = document.querySelectorAll(`.ep-cb[data-season="${season}"]`);
+  epCbs.forEach(c => { c.checked = cb.checked; });
+
+  // Open the season list if selecting
+  if (cb.checked) {
+    const list = document.getElementById('s' + season);
+    if (list.style.display !== 'block') toggleSeason('s' + season);
+  }
+  updateBar();
+}
+
+// ---- Keep season checkbox in sync ----
+function syncSeasonCb(season) {
+  const epCbs    = document.querySelectorAll(`.ep-cb[data-season="${season}"]`);
+  const seasonCb = document.querySelector(`.season-cb[data-season="${season}"]`);
+  if (!seasonCb) return;
+  const total   = epCbs.length;
+  const checked = [...epCbs].filter(c => c.checked).length;
+  seasonCb.checked       = checked === total;
+  seasonCb.indeterminate = checked > 0 && checked < total;
+}
+
+document.querySelectorAll('.ep-cb').forEach(cb => {
+  cb.addEventListener('change', () => {
+    syncSeasonCb(cb.dataset.season);
+    updateBar();
+  });
+});
+
+// ---- Update sticky bar ----
+function getSelected() {
+  return [...document.querySelectorAll('.ep-cb:checked')];
+}
+
+function updateBar() {
+  const sel = getSelected();
+  const bar = document.getElementById('dl-bar');
+  document.getElementById('dl-label').textContent = `${sel.length} aflevering${sel.length !== 1 ? 'en' : ''} geselecteerd`;
+  bar.style.display = sel.length > 0 ? 'flex' : 'none';
+}
+
+function clearSelection() {
+  document.querySelectorAll('.ep-cb, .season-cb').forEach(c => {
+    c.checked = false;
+    c.indeterminate = false;
+  });
+  updateBar();
+}
+
+// ---- Sequential multi-download ----
+document.getElementById('dl-start').addEventListener('click', function() {
+  const items = getSelected().map(cb => ({
+    epId:     cb.dataset.epId,
+    ext:      cb.dataset.ext,
+    filename: cb.dataset.filename
+  }));
+  if (!items.length) return;
+  startSequentialDownload(items);
+});
+
+async function startSequentialDownload(items) {
+  const overlay  = document.getElementById('dl-overlay');
+  const title    = document.getElementById('dl-progress-title');
+  const fill     = document.getElementById('dl-progress-fill');
+  const txt      = document.getElementById('dl-progress-text');
+
+  overlay.style.display = 'flex';
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const pct  = Math.round((i / items.length) * 100);
+
+    title.textContent    = `Downloaden ${i + 1} / ${items.length}`;
+    fill.style.width     = pct + '%';
+    txt.textContent      = item.filename;
+
+    const url = '/stream/' + encodeURIComponent(item.epId)
+              + '?ext='      + encodeURIComponent(item.ext)
+              + '&filename=' + encodeURIComponent(item.filename);
+
+    // Trigger download via hidden link
+    const a = document.createElement('a');
+    a.href     = url;
+    a.download = item.filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+
+    // Wait before next download so browser can start the first one
+    if (i < items.length - 1) {
+      await new Promise(r => setTimeout(r, 1500));
+    }
+  }
+
+  fill.style.width  = '100%';
+  title.textContent = `Klaar — ${items.length} aflevering${items.length !== 1 ? 'en' : ''} gedownload`;
+  txt.textContent   = '';
+}
+
+function closeOverlay() {
+  document.getElementById('dl-overlay').style.display = 'none';
+  clearSelection();
+}
+
+// ---- Single download with rename ----
 function hideRename(epId) {
   document.getElementById('rename-' + epId).style.display = 'none';
 }
@@ -95,7 +252,6 @@ document.querySelectorAll('.dl-btn').forEach(function(btn) {
     const ext     = this.dataset.ext;
     const defName = this.dataset.filename;
 
-    // Hide any other open rename bars
     document.querySelectorAll('.rename-bar').forEach(b => b.style.display = 'none');
 
     const bar   = document.getElementById('rename-' + epId);
@@ -111,13 +267,13 @@ document.querySelectorAll('.dl-btn').forEach(function(btn) {
     function startDownload() {
       const filename = input.value.trim() || defName;
       window.location.href = '/stream/' + encodeURIComponent(epId)
-        + '?ext=' + encodeURIComponent(ext)
+        + '?ext='      + encodeURIComponent(ext)
         + '&filename=' + encodeURIComponent(filename);
       bar.style.display = 'none';
     }
 
-    dlBtn.onclick = startDownload;
-    input.onkeydown = function(e) {
+    dlBtn.onclick      = startDownload;
+    input.onkeydown    = e => {
       if (e.key === 'Enter')  startDownload();
       if (e.key === 'Escape') hideRename(epId);
     };
