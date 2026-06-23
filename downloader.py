@@ -123,21 +123,20 @@ def save_accounts(accounts: list):
 
 def add_account_interactive() -> Optional[dict]:
     console.print("\n[bold cyan]Add Account[/bold cyan]")
-    console.print("1. Server / username / password")
-    console.print("2. M3U+ URL (auto-extract credentials)")
-    method = Prompt.ask("Method", choices=["1", "2"], default="1")
+    console.print("[dim]Paste your M3U+ URL, or type [bold]manual[/bold] to enter server/user/pass separately.[/dim]\n")
 
-    if method == "2":
-        url = Prompt.ask("M3U+ URL")
-        result = parse_m3u_plus_url(url)
-        if not result:
-            console.print("[red]Could not parse URL — expected format: http://host/get.php?username=X&password=Y[/red]")
-            return None
-        server, username, password = result
-    else:
+    raw = Prompt.ask("M3U+ URL (or 'manual')")
+
+    if raw.strip().lower() == "manual":
         server   = Prompt.ask("Server URL (e.g. http://example.com:8080)")
         username = Prompt.ask("Username")
         password = Prompt.ask("Password", password=True)
+    else:
+        result = parse_m3u_plus_url(raw.strip())
+        if not result:
+            console.print("[red]Could not parse URL — expected: http://host/get.php?username=X&password=Y[/red]")
+            return None
+        server, username, password = result
 
     default_name = f"{username}@{server}"
     name = Prompt.ask("Label for this account", default=default_name)
@@ -159,7 +158,6 @@ def add_account_interactive() -> Optional[dict]:
 def select_account() -> Optional[dict]:
     accounts = load_accounts()
     if not accounts:
-        console.print("[yellow]No saved accounts.[/yellow]")
         return add_account_interactive()
 
     console.print("\n[bold cyan]Select Account[/bold cyan]")
