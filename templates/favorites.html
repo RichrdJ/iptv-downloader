@@ -3,13 +3,16 @@
 
 <div class="page-header">
   <h1>Favorieten</h1>
-  <span class="badge">{{ favorites | length }}</span>
+  <span class="badge">{{ total }}</span>
 </div>
 
-{% if favorites %}
-<div class="series-grid" id="fav-grid">
-  {% for s in favorites %}
-  <div class="series-card-wrap">
+{% if fav_series or fav_movies %}
+
+{% if fav_series %}
+<h2>Series</h2>
+<div class="series-grid fav-grid">
+  {% for s in fav_series %}
+  <div class="series-card-wrap" data-type="series">
     <a class="series-card" href="/series/{{ s.series_id }}">
       <div class="cover-wrap">
         {% if s.cover %}
@@ -26,16 +29,49 @@
     </a>
     <button class="fav-btn active"
             title="Verwijder uit favorieten"
+            data-type="series"
             data-id="{{ s.series_id }}"
             data-name="{{ s.name }}"
             data-cover="{{ s.cover or '' }}">♥</button>
   </div>
   {% endfor %}
 </div>
+{% endif %}
+
+{% if fav_movies %}
+<h2 style="margin-top:1.5rem">Films</h2>
+<div class="series-grid fav-grid">
+  {% for m in fav_movies %}
+  <div class="series-card-wrap" data-type="movie">
+    <div class="series-card">
+      <div class="cover-wrap">
+        {% if m.cover %}
+        <img src="{{ m.cover }}" loading="lazy" class="series-cover"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+        <div class="cover-placeholder" style="display:none">🎬</div>
+        {% else %}
+        <div class="cover-placeholder">🎬</div>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        <div class="name">{{ m.name }}</div>
+      </div>
+    </div>
+    <button class="fav-btn active"
+            title="Verwijder uit favorieten"
+            data-type="movie"
+            data-id="{{ m.movie_id }}"
+            data-name="{{ m.name }}"
+            data-cover="{{ m.cover or '' }}">♥</button>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% else %}
 <div class="empty">
   <div class="icon">♡</div>
-  <p>Geen favorieten opgeslagen.<br>Voeg series toe via de ♥ knop op een seriepagina.</p>
+  <p>Geen favorieten opgeslagen.<br>Voeg series of films toe via de ♥ knop.</p>
 </div>
 {% endif %}
 
@@ -59,18 +95,22 @@
 document.querySelectorAll('.fav-btn').forEach(btn => {
   btn.addEventListener('click', async function() {
     const wrap = this.closest('.series-card-wrap');
+    const type = this.dataset.type || 'series';
+    const body = {type, name: this.dataset.name, cover: this.dataset.cover};
+    body[type === 'movie' ? 'movie_id' : 'series_id'] = +this.dataset.id;
     const resp = await fetch('/favorites/toggle', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({series_id: +this.dataset.id, name: this.dataset.name, cover: this.dataset.cover})
+      body: JSON.stringify(body)
     });
     const data = await resp.json();
     if (!data.is_fav) {
       wrap.style.transition = 'opacity .3s';
       wrap.style.opacity = '0';
-      setTimeout(() => wrap.remove(), 300);
-      const grid = document.getElementById('fav-grid');
-      if (grid && grid.children.length === 0) location.reload();
+      setTimeout(() => {
+        wrap.remove();
+        if (document.querySelectorAll('.series-card-wrap').length === 0) location.reload();
+      }, 300);
     }
   });
 });

@@ -23,9 +23,14 @@ app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
 @app.context_processor
 def inject_globals():
     fav_ids = set()
+    fav_movie_ids = set()
     if 'server' in session:
-        fav_ids = {f['series_id'] for f in load_favorites()}
-    return {'version': VERSION, 'fav_ids': fav_ids}
+        for f in load_favorites():
+            if f.get('type') == 'movie':
+                fav_movie_ids.add(f['movie_id'])
+            else:
+                fav_ids.add(f.get('series_id'))
+    return {'version': VERSION, 'fav_ids': fav_ids, 'fav_movie_ids': fav_movie_ids}
 
 CONFIG_DIR   = Path(os.environ.get('CONFIG_DIR',   '/config'))
 DOWNLOAD_DIR = Path(os.environ.get('DOWNLOAD_DIR', '/downloads'))
@@ -225,13 +230,14 @@ def load_favorites() -> list:
     return json.load(open(f)) if f.exists() else []
 
 
-def toggle_favorite(series_id: int, name: str, cover: str) -> bool:
+def toggle_favorite(item_id: int, name: str, cover: str, fav_type: str = 'series') -> bool:
     favs = load_favorites()
-    if any(f['series_id'] == series_id for f in favs):
-        favs = [f for f in favs if f['series_id'] != series_id]
+    id_key = 'movie_id' if fav_type == 'movie' else 'series_id'
+    if any(f.get(id_key) == item_id for f in favs):
+        favs = [f for f in favs if f.get(id_key) != item_id]
         is_fav = False
     else:
-        favs.append({'series_id': series_id, 'name': name, 'cover': cover or ''})
+        favs.append({id_key: item_id, 'name': name, 'cover': cover or '', 'type': fav_type})
         is_fav = True
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     with open(_favs_file(), 'w') as fh:
@@ -605,18 +611,23 @@ def movies_search():
 def favorites():
     if 'server' not in session:
         return redirect(url_for('index'))
-    return render_template('favorites.html', favorites=load_favorites())
+    all_favs     = load_favorites()
+    fav_series   = [f for f in all_favs if f.get('type', 'series') == 'series']
+    fav_movies   = [f for f in all_favs if f.get('type') == 'movie']
+    return render_template('favorites.html', fav_series=fav_series,
+                           fav_movies=fav_movies, total=len(all_favs))
 
 
 @app.route('/favorites/toggle', methods=['POST'])
 def fav_toggle():
     if 'server' not in session:
         return jsonify(error='not logged in'), 401
-    data      = request.get_json()
-    series_id = int(data.get('series_id', 0))
-    name      = data.get('name', '')
-    cover     = data.get('cover', '')
-    is_fav    = toggle_favorite(series_id, name, cover)
+    data     = request.get_json()
+    fav_type = data.get('type', 'series')
+    item_id  = int(data.get('movie_id' if fav_type == 'movie' else 'series_id', 0))
+    name     = data.get('name', '')
+    cover    = data.get('cover', '')
+    is_fav   = toggle_favorite(item_id, name, cover, fav_type)
     return jsonify(is_fav=is_fav)
 
 
