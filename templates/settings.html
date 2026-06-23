@@ -1,0 +1,94 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<div class="page-header">
+  <h1>Instellingen</h1>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:1.25rem;max-width:560px">
+
+  <!-- Auto-sync -->
+  <div class="card">
+    <h2 style="margin-bottom:1rem">Automatische sync</h2>
+    <p style="font-size:.85rem;color:#666;margin-bottom:1.25rem;line-height:1.6">
+      De app haalt periodiek nieuwe series en films op van je IPTV-provider.
+      Zo verschijnen nieuwe toevoegingen automatisch zonder dat je handmatig hoeft te syncen.
+    </p>
+
+    <form method="POST" action="/settings">
+      <div class="interval-grid">
+        {% for val, label in sync_options %}
+        <label class="interval-option {{ 'selected' if settings.sync_interval == val else '' }}">
+          <input type="radio" name="sync_interval" value="{{ val }}"
+                 {{ 'checked' if settings.sync_interval == val else '' }}>
+          <span class="interval-label">{{ label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      <button type="submit" class="btn btn-primary" style="margin-top:1.25rem">Opslaan</button>
+    </form>
+  </div>
+
+  <!-- Sync status -->
+  <div class="card">
+    <h2 style="margin-bottom:1rem">Synchronisatiestatus</h2>
+    <div class="status-grid">
+      <div class="status-row">
+        <span class="status-key">Laatste sync</span>
+        <span class="status-val">{{ cache_age or '—' }}</span>
+      </div>
+      <div class="status-row">
+        <span class="status-key">Volgende sync</span>
+        <span class="status-val">
+          {% if settings.sync_interval == 0 %}
+            <span style="color:#444">Uitgeschakeld</span>
+          {% elif next_sync %}
+            over {{ next_sync }}
+          {% else %}
+            —
+          {% endif %}
+        </span>
+      </div>
+      <div class="status-row">
+        <span class="status-key">Interval</span>
+        <span class="status-val">
+          {% for val, label in sync_options %}
+            {% if settings.sync_interval == val %}{{ label }}{% endif %}
+          {% endfor %}
+        </span>
+      </div>
+    </div>
+    <form method="POST" action="/sync" style="margin-top:1.25rem">
+      <button type="submit" class="btn btn-secondary btn-sm">↻ Nu synchroniseren</button>
+    </form>
+  </div>
+
+</div>
+
+<style>
+.interval-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:.5rem}
+.interval-option{display:flex;align-items:center;justify-content:center;background:#0d0d0d;border:1px solid #2e2e2e;border-radius:8px;padding:.75rem .5rem;cursor:pointer;transition:border-color .15s,background .15s;text-align:center}
+.interval-option input[type=radio]{display:none}
+.interval-option:hover{border-color:#00d4ff44;background:#111}
+.interval-option.selected,.interval-option:has(input:checked){border-color:#00d4ff;background:#001e2a}
+.interval-label{font-size:.875rem;color:#ccc;font-weight:500}
+.interval-option.selected .interval-label,.interval-option:has(input:checked) .interval-label{color:#00d4ff}
+
+.status-grid{display:flex;flex-direction:column;gap:.5rem}
+.status-row{display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px solid #1a1a1a;font-size:.875rem}
+.status-row:last-child{border-bottom:none}
+.status-key{color:#555}
+.status-val{color:#ccc;font-weight:500}
+</style>
+
+<script>
+// Highlight selected option on click without waiting for form submit
+document.querySelectorAll('.interval-option input[type=radio]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    document.querySelectorAll('.interval-option').forEach(opt => opt.classList.remove('selected'));
+    radio.closest('.interval-option').classList.add('selected');
+  });
+});
+</script>
+
+{% endblock %}

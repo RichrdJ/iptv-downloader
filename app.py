@@ -5,7 +5,9 @@ import os
 import re
 import json
 import hashlib
-from datetime import datetime
+import threading
+import time
+from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
 
@@ -165,9 +167,12 @@ def delete_account(idx):
 # Cache
 # ---------------------------------------------------------------------------
 
+def _cache_key_for(server: str, username: str) -> str:
+    return hashlib.md5(f"{server}{username}".encode()).hexdigest()[:12]
+
+
 def _cache_key() -> str:
-    raw = f"{session.get('server','')}{session.get('username','')}"
-    return hashlib.md5(raw.encode()).hexdigest()[:12]
+    return _cache_key_for(session.get('server', ''), session.get('username', ''))
 
 
 def _cache_file() -> Path:
@@ -253,6 +258,73 @@ def mark_downloaded(ep_ids: list):
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     with open(_hist_file(), 'w') as fh:
         json.dump(list(hist), fh)
+
+
+# ---------------------------------------------------------------------------
+# Settings
+# ---------------------------------------------------------------------------
+
+def _settings_file() -> Path:
+    return CONFIG_DIR / 'settings.json'
+
+
+def load_settings() -> dict:
+    f = _settings_file()
+    return json.load(open(f)) if f.exists() else {'sync_interval': 0}
+
+
+def save_settings(data: dict):
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    with open(_settings_file(), 'w') as fh:
+        json.dump(data, fh, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Background auto-sync
+# ---------------------------------------------------------------------------
+
+def _auto_sync_worker():
+    """Daemon thread: syncs the default account's cache on the configured interval."""
+    while True:
+        time.sleep(60)
+        try:
+            interval_h = load_settings().get('sync_interval', 0)
+            if not interval_h:
+                continue
+            accounts = load_accounts()
+            acc = next((a for a in accounts if a.get('default')), None) \
+                  or (accounts[0] if accounts else None)
+            if not acc:
+                continue
+            key      = _cache_key_for(acc['server'], acc['username'])
+            cache_f  = CONFIG_DIR / f"cache_{key}.json"
+            if cache_f.exists():
+                with open(cache_f) as fh:
+                    cache = json.load(fh)
+                ts = cache.get('fetched_at')
+                if ts:
+                    delta = datetime.utcnow() - datetime.fromisoformat(ts)
+                    if delta.total_seconds() < interval_h * 3600:
+                        continue
+            client = XtreamClient(acc['server'], acc['username'], acc['password'])
+            new_cache = {
+                'categories':    client.categories(),
+                'series_all':    client.series(),
+                'series_by_cat': {},
+                'movie_cats':    client.movie_categories(),
+                'movies_all':    client.movies(),
+                'movies_by_cat': {},
+                'fetched_at':    datetime.utcnow().isoformat(),
+            }
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            with open(cache_f, 'w') as fh:
+                json.dump(new_cache, fh)
+        except Exception:
+            pass
+
+
+_sync_thread = threading.Thread(target=_auto_sync_worker, daemon=True, name='auto-sync')
+_sync_thread.start()
 
 
 # ---------------------------------------------------------------------------
@@ -606,6 +678,53 @@ def stream_movie(movie_id):
     ext      = request.args.get('ext', 'mp4')
     filename = request.args.get('filename', f'movie.{ext}')
     return _proxy_stream(client.movie_url(movie_id, ext), filename)
+
+
+# ---------------------------------------------------------------------------
+# Routes — settings
+# ---------------------------------------------------------------------------
+
+SYNC_OPTIONS = [
+    (0,   'Uitgeschakeld'),
+    (1,   '1 uur'),
+    (6,   '6 uur'),
+    (12,  '12 uur'),
+    (72,  '3 dagen'),
+]
+
+
+@app.route('/settings', methods=['GET', 'POST'])
+def settings():
+    if 'server' not in session:
+        return redirect(url_for('index'))
+    if request.method == 'POST':
+        interval = int(request.form.get('sync_interval', 0))
+        save_settings({'sync_interval': interval})
+        return redirect(url_for('settings'))
+
+    s     = load_settings()
+    cache = load_cache()
+    ts    = cache.get('fetched_at')
+    next_sync = None
+    if ts and s.get('sync_interval'):
+        try:
+            last_dt   = datetime.fromisoformat(ts)
+            next_dt   = last_dt + timedelta(hours=s['sync_interval'])
+            delta_sec = (next_dt - datetime.utcnow()).total_seconds()
+            if delta_sec > 0:
+                h, rem = divmod(int(delta_sec), 3600)
+                m      = rem // 60
+                next_sync = f'{h}u {m}m' if h else f'{m}m'
+            else:
+                next_sync = 'Binnenkort'
+        except Exception:
+            pass
+
+    return render_template('settings.html',
+                           settings=s,
+                           sync_options=SYNC_OPTIONS,
+                           cache_age=cache_age(cache),
+                           next_sync=next_sync)
 
 
 if __name__ == '__main__':

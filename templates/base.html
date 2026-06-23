@@ -119,6 +119,7 @@ hr.divider{border:none;border-top:1px solid #1e1e1e;margin:1.5rem 0}
   <a href="/favorites">Favorieten{% if fav_ids %} <span class="nav-badge">{{ fav_ids|length }}</span>{% endif %}</a>
   <div class="spacer"></div>
   <span class="acct-label">{{ session.get('account_name','') }}</span>
+  <a href="/settings" title="Instellingen">⚙</a>
   <a href="/logout" title="Account wisselen">Wisselen</a>
   {% endif %}
 </nav>
