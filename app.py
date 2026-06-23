@@ -4,6 +4,8 @@
 import os
 import re
 import json
+import hashlib
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -11,7 +13,7 @@ import requests as http
 from flask import (Flask, render_template, request, redirect,
                    url_for, session, Response, stream_with_context)
 
-VERSION = "1.5.0"
+VERSION = "1.7.0"
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
@@ -225,6 +227,54 @@ def logout():
 
 
 # ---------------------------------------------------------------------------
+# Cache
+# ---------------------------------------------------------------------------
+
+def _cache_key() -> str:
+    raw = f"{session.get('server','')}{session.get('username','')}"
+    return hashlib.md5(raw.encode()).hexdigest()[:12]
+
+
+def _cache_file() -> Path:
+    return CONFIG_DIR / f"cache_{_cache_key()}.json"
+
+
+def load_cache() -> dict:
+    f = _cache_file()
+    if f.exists():
+        with open(f) as fh:
+            return json.load(fh)
+    return {}
+
+
+def save_cache(data: dict):
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    data['fetched_at'] = datetime.utcnow().isoformat()
+    with open(_cache_file(), 'w') as fh:
+        json.dump(data, fh)
+
+
+def clear_cache():
+    f = _cache_file()
+    if f.exists():
+        f.unlink()
+
+
+def cache_age(cache: dict) -> str:
+    ts = cache.get('fetched_at')
+    if not ts:
+        return ''
+    try:
+        delta = datetime.utcnow() - datetime.fromisoformat(ts)
+        h, m = divmod(int(delta.total_seconds()) // 60, 60)
+        if h:
+            return f'{h}u {m}m geleden'
+        return f'{m}m geleden'
+    except Exception:
+        return ''
+
+
+# ---------------------------------------------------------------------------
 # Routes — browse
 # ---------------------------------------------------------------------------
 
@@ -233,12 +283,22 @@ def browse():
     client = get_client()
     if not client:
         return redirect(url_for('index'))
-    try:
-        cats  = client.categories()
+
+    cache = load_cache()
+    if 'categories' in cache:
+        cats  = cache['categories']
         error = None
-    except Exception as e:
-        cats, error = [], str(e)
-    return render_template('browse.html', categories=cats, error=error)
+    else:
+        try:
+            cats  = client.categories()
+            cache['categories'] = cats
+            save_cache(cache)
+            error = None
+        except Exception as e:
+            cats, error = [], str(e)
+
+    return render_template('browse.html', categories=cats,
+                           cache_age=cache_age(load_cache()), error=error)
 
 
 @app.route('/category/<cat_id>')
@@ -246,12 +306,22 @@ def category(cat_id):
     client = get_client()
     if not client:
         return redirect(url_for('index'))
+
+    cache    = load_cache()
+    cat_name = request.args.get('name', 'Categorie')
+    cached   = cache.get('series_by_cat', {}).get(cat_id)
+
+    if cached is not None:
+        return render_template('series_list.html', series_list=cached,
+                               title=cat_name, error=None)
     try:
         series_list = client.series(cat_id)
-        cat_name    = request.args.get('name', 'Categorie')
+        cache.setdefault('series_by_cat', {})[cat_id] = series_list
+        save_cache(cache)
         error = None
     except Exception as e:
-        series_list, cat_name, error = [], 'Fout', str(e)
+        series_list, error = [], str(e)
+
     return render_template('series_list.html', series_list=series_list,
                            title=cat_name, error=error)
 
@@ -264,13 +334,38 @@ def search():
     q = request.args.get('q', '').strip().lower()
     if not q:
         return redirect(url_for('browse'))
-    try:
-        results = [s for s in client.series() if q in s.get('name', '').lower()]
-        error   = None
-    except Exception as e:
-        results, error = [], str(e)
+
+    cache = load_cache()
+    if 'series_all' not in cache:
+        try:
+            cache['series_all'] = client.series()
+            save_cache(cache)
+        except Exception as e:
+            return render_template('series_list.html', series_list=[],
+                                   title=f'Zoeken: {q}', error=str(e))
+
+    results = [s for s in cache['series_all'] if q in s.get('name', '').lower()]
     return render_template('series_list.html', series_list=results,
-                           title=f'Zoeken: {q}', error=error)
+                           title=f'Zoeken: {q}', error=None)
+
+
+@app.route('/sync', methods=['POST'])
+def sync():
+    client = get_client()
+    if not client:
+        return redirect(url_for('index'))
+    clear_cache()
+    # Pre-fetch categories and all series into fresh cache
+    try:
+        cache = {
+            'categories': client.categories(),
+            'series_all': client.series(),
+            'series_by_cat': {},
+        }
+        save_cache(cache)
+    except Exception:
+        pass
+    return redirect(url_for('browse'))
 
 
 @app.route('/series/<int:series_id>')

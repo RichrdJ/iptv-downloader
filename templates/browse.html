@@ -1,7 +1,19 @@
 {% extends 'base.html' %}
 {% block content %}
 
-<h1>Series bladeren</h1>
+<div class="page-header">
+  <h1 style="margin:0">Series bladeren</h1>
+  <div style="display:flex;align-items:center;gap:.75rem;margin-left:auto">
+    {% if cache_age %}
+    <span style="font-size:.75rem;color:#444">Bijgewerkt: {{ cache_age }}</span>
+    {% endif %}
+    <form method="POST" action="/sync">
+      <button type="submit" class="btn btn-secondary btn-sm" title="Haal nieuwe data op van de server">
+        ↻ Sync
+      </button>
+    </form>
+  </div>
+</div>
 
 {% if error %}<div class="error">{{ error }}</div>{% endif %}
 
