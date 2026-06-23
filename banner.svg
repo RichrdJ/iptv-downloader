@@ -97,5 +97,5 @@
   <!-- Version tag top-right -->
   <rect x="1096" y="18" width="84" height="26" rx="13" fill="#0a2533" stroke="#00d4ff33" stroke-width="1"/>
   <text x="1138" y="35" font-family="'Segoe UI', monospace, sans-serif" font-size="12"
-        fill="#00d4ff" text-anchor="middle" font-weight="600">v2.0.1</text>
+        fill="#00d4ff" text-anchor="middle" font-weight="600">v2.1.0</text>
 </svg>

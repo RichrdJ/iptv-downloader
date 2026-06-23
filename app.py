@@ -15,7 +15,7 @@ import requests as http
 from flask import (Flask, render_template, request, redirect,
                    url_for, session, Response, stream_with_context, jsonify)
 
-VERSION = "2.0.1"
+VERSION = "2.1.0"
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
