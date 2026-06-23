@@ -111,11 +111,12 @@ hr.divider{border:none;border-top:1px solid #1e1e1e;margin:1.5rem 0}
 
 <nav>
   <a class="brand" href="/">&#9660; IPTV Downloader</a>
+  <span style="font-size:.7rem;color:#333;margin-left:-.75rem">v{{ version }}</span>
   {% if session.get('server') %}
   <a href="/browse">Browse</a>
   <div class="spacer"></div>
   <span class="acct-label">{{ session.get('account_name','') }}</span>
-  <a href="/logout">Logout</a>
+  <a href="/logout" title="Account wisselen">Wisselen</a>
   {% endif %}
 </nav>
 

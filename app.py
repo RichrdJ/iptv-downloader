@@ -11,8 +11,14 @@ import requests as http
 from flask import (Flask, render_template, request, redirect,
                    url_for, session, Response, stream_with_context)
 
+VERSION = "1.5.0"
+
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
+
+@app.context_processor
+def inject_version():
+    return {'version': VERSION}
 
 CONFIG_DIR  = Path(os.environ.get('CONFIG_DIR',  '/config'))
 DOWNLOAD_DIR = Path(os.environ.get('DOWNLOAD_DIR', '/downloads'))
@@ -104,9 +110,22 @@ def load_accounts():
     return []
 
 
+def set_default_account(idx):
+    accounts = load_accounts()
+    for i, a in enumerate(accounts):
+        a['default'] = (i == idx)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    with open(CONFIG_FILE, 'w') as f:
+        json.dump(accounts, f, indent=2)
+
+
 def save_account(acc):
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     accounts = load_accounts()
+    # New account becomes the default; clear default on others
+    for a in accounts:
+        a['default'] = False
+    acc['default'] = True
     accounts.append(acc)
     with open(CONFIG_FILE, 'w') as f:
         json.dump(accounts, f, indent=2)
@@ -127,6 +146,17 @@ def delete_account(idx):
 
 @app.route('/')
 def index():
+    # Auto-connect to the default account if no active session
+    if 'server' not in session:
+        accounts = load_accounts()
+        default  = next((a for a in accounts if a.get('default')), None)
+        if default:
+            client = XtreamClient(default['server'], default['username'], default['password'])
+            if client.authenticate():
+                session.update(server=default['server'], username=default['username'],
+                               password=default['password'], account_name=default['name'])
+                return redirect(url_for('browse'))
+
     return render_template('login.html',
                            accounts=load_accounts(),
                            show_manual=request.args.get('manual') == '1',
@@ -144,6 +174,7 @@ def connect():
             a = accs[idx]
             session.update(server=a['server'], username=a['username'],
                            password=a['password'], account_name=a['name'])
+            set_default_account(idx)
         return redirect(url_for('browse'))
 
     if action == 'delete':
