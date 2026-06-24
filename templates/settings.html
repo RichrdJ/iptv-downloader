@@ -7,6 +7,45 @@
 
 <div style="display:flex;flex-direction:column;gap:1.25rem;max-width:560px">
 
+  <!-- Downloads -->
+  <div class="card">
+    <h2 style="margin-bottom:1rem">Downloads</h2>
+    <p style="font-size:.85rem;color:#666;margin-bottom:1.25rem;line-height:1.6">
+      Kies waar downloads naartoe gaan: naar je browser of naar een pad op de server/container.
+    </p>
+
+    <form method="POST" action="/settings">
+      <input type="hidden" name="sync_interval" value="{{ settings.sync_interval }}">
+
+      <div class="interval-grid" style="margin-bottom:1rem">
+        <label class="interval-option {{ 'selected' if settings.download_mode == 'browser' else '' }}">
+          <input type="radio" name="download_mode" value="browser"
+                 {{ 'checked' if settings.download_mode == 'browser' else '' }}>
+          <span class="interval-label">Browser</span>
+        </label>
+        <label class="interval-option {{ 'selected' if settings.download_mode == 'server' else '' }}">
+          <input type="radio" name="download_mode" value="server"
+                 {{ 'checked' if settings.download_mode == 'server' else '' }}>
+          <span class="interval-label">Server / container</span>
+        </label>
+      </div>
+
+      <div id="server-path-group" style="display:{{ 'block' if settings.download_mode == 'server' else 'none' }}">
+        <div class="form-group">
+          <label>Download pad</label>
+          <input type="text" name="download_path" value="{{ settings.download_path }}"
+                 placeholder="/mnt/video/_downloads"
+                 style="font-family:monospace;font-size:.82rem">
+        </div>
+        <p style="font-size:.78rem;color:#555;margin-top:-.5rem;line-height:1.5">
+          Zorg dat dit pad als volume gemount is in de container.
+        </p>
+      </div>
+
+      <button type="submit" class="btn btn-primary" style="margin-top:.75rem">Opslaan</button>
+    </form>
+  </div>
+
   <!-- Auto-sync -->
   <div class="card">
     <h2 style="margin-bottom:1rem">Automatische sync</h2>
@@ -16,6 +55,8 @@
     </p>
 
     <form method="POST" action="/settings">
+      <input type="hidden" name="download_mode" value="{{ settings.download_mode }}">
+      <input type="hidden" name="download_path" value="{{ settings.download_path }}">
       <div class="interval-grid">
         {% for val, label in sync_options %}
         <label class="interval-option {{ 'selected' if settings.sync_interval == val else '' }}">
@@ -82,11 +123,18 @@
 </style>
 
 <script>
-// Highlight selected option on click without waiting for form submit
 document.querySelectorAll('.interval-option input[type=radio]').forEach(radio => {
   radio.addEventListener('change', () => {
-    document.querySelectorAll('.interval-option').forEach(opt => opt.classList.remove('selected'));
+    const grid = radio.closest('.interval-grid');
+    grid.querySelectorAll('.interval-option').forEach(opt => opt.classList.remove('selected'));
     radio.closest('.interval-option').classList.add('selected');
+  });
+});
+
+document.querySelectorAll('input[name=download_mode]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    document.getElementById('server-path-group').style.display =
+      document.querySelector('input[name=download_mode]:checked').value === 'server' ? 'block' : 'none';
   });
 });
 </script>

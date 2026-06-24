@@ -2,15 +2,7 @@
   <img src="banner.svg" alt="IPTV Downloader" width="100%"/>
 </p>
 
-Een zelfgehoste web-applicatie om series van Xtream IPTV providers te downloaden. Selecteer een seizoen of download een hele serie in één klik. Draait als Docker container.
-
----
-
-## Screenshots
-
-| Login | Browse | Seizoenen | Downloads |
-|-------|--------|-----------|-----------|
-| M3U+ URL invoeren | Bladeren per categorie of zoeken | Seizoen of alles selecteren | Live voortgang per aflevering |
+Een zelfgehoste web-applicatie om series en films van Xtream IPTV providers te downloaden. Selecteer losse afleveringen, een heel seizoen of download films met een klik. Draait als Docker container.
 
 ---
 
@@ -18,12 +10,18 @@ Een zelfgehoste web-applicatie om series van Xtream IPTV providers te downloaden
 
 - **Web UI** — toegankelijk via de browser, geen installatie nodig
 - **M3U+ URL** — plak je provider URL en je bent klaar
-- **Bulk download** — download een heel seizoen of alle seizoenen tegelijk
-- **Slimme naamgeving** — `Serie Naam - S01E03 - Aflevering Titel.mkv`
-- **Voortgang** — live download progress met stop-knop
-- **Skip** — bestanden die al bestaan worden automatisch overgeslagen
-- **Accounts opslaan** — meerdere providers opslaan en wisselen
-- **ffmpeg** — verwerkt HLS, MPEG-TS, MP4 en MKV streams correct
+- **Series & Films** — beide volledig ondersteund met eigen navigatie
+- **Bulk download** — selecteer meerdere afleveringen of een heel seizoen
+- **Browser of server download** — download naar je browser of direct naar een pad op de container
+- **Omslagafbeeldingen** — covers voor series en films, lazy loaded
+- **Series detailpagina** — hero header met poster, genre, beoordeling, cast en samenvatting
+- **Favorieten** — sla series en films op in je watchlist per account
+- **Downloadgeschiedenis** — gedownloade afleveringen krijgen een markering
+- **Sorteren & filteren** — zoek op naam, sorteer op A-Z of beoordeling
+- **Slimme naamgeving** — `Show.Name.S01E03.Episode.Title.mkv` met rename optie
+- **Auto-sync** — periodiek nieuwe content ophalen (1u, 6u, 12u, 3 dagen)
+- **Accounts opslaan** — meerdere providers opslaan, bewerken en wisselen
+- **Auto-connect** — standaard account wordt automatisch verbonden
 
 ---
 
@@ -31,7 +29,7 @@ Een zelfgehoste web-applicatie om series van Xtream IPTV providers te downloaden
 
 ### Via Portainer (aanbevolen)
 
-1. Ga naar **Stacks → Add stack**
+1. Ga naar **Stacks > Add stack**
 2. Plak de inhoud van [`stack.yml`](stack.yml)
 3. Deploy — bereikbaar op poort `2233`
 
@@ -60,30 +58,40 @@ Of kies voor **handmatig invoeren** en vul server, gebruikersnaam en wachtwoord 
 
 Vink **Account opslaan** aan om de gegevens te bewaren voor een volgende keer.
 
-### 2. Series zoeken
+### 2. Series & films zoeken
 
-- Blader door de **categorielijst**
+- Blader door de **categorielijst** (apart voor series en films)
 - Of gebruik de **zoekbalk** om direct op naam te zoeken
+- Gebruik **sorteren en filteren** om snel te vinden wat je zoekt
 
 ### 3. Downloaden
 
-1. Klik op een serie
-2. Kies een seizoen — of klik **Alle seizoenen downloaden**
-3. Volg de voortgang op de **Downloads** pagina
+**Series:**
+1. Klik op een serie om de detailpagina te openen
+2. Selecteer losse afleveringen of een heel seizoen via de checkboxes
+3. Klik op de downloadknop — pas eventueel de bestandsnaam aan
+
+**Films:**
+1. Blader door filmcategorieen of zoek op naam
+2. Klik op de downloadknop op een filmkaart
+3. Pas eventueel de bestandsnaam aan en bevestig
+
+**Download naar server:**
+Ga naar **Instellingen** en kies "Server / container" als download modus. Stel het pad in (bijv. `/mnt/video/_downloads`) en zorg dat dit pad als volume gemount is.
 
 ---
 
 ## Bestandsnaming
 
-Downloads worden opgeslagen als:
+Downloads gebruiken punten als scheidingsteken:
 
 ```
-/downloads/
-└── Breaking Bad/
-    ├── Breaking Bad - S01E01 - Pilot.mkv
-    ├── Breaking Bad - S01E02 - Cat's in the Bag.mkv
-    └── Breaking Bad - S02E01 - Seven Thirty-Seven.mkv
+Breaking.Bad.S01E01.Pilot.mkv
+Breaking.Bad.S01E02.Cats.in.the.Bag.mkv
+The.Matrix.1999.mp4
 ```
+
+Bij elke download kun je de naam aanpassen via het rename dialoog.
 
 ---
 
@@ -91,7 +99,7 @@ Downloads worden opgeslagen als:
 
 | Omgevingsvariabele | Standaard | Omschrijving |
 |--------------------|-----------|--------------|
-| `CONFIG_DIR` | `/config` | Locatie opgeslagen accounts |
+| `CONFIG_DIR` | `/config` | Locatie accounts, cache, favorieten en instellingen |
 | `DOWNLOAD_DIR` | `/downloads` | Locatie gedownloade bestanden |
 | `SECRET_KEY` | willekeurig | Flask sessie sleutel (stel in voor persistente sessies) |
 
@@ -99,8 +107,9 @@ Downloads worden opgeslagen als:
 
 | Container pad | Omschrijving |
 |---------------|--------------|
-| `/config` | Opgeslagen accounts (`accounts.json`) |
-| `/downloads` | Gedownloade afleveringen |
+| `/config` | Accounts, cache, favorieten, geschiedenis, instellingen |
+| `/downloads` | Gedownloade bestanden (browser modus) |
+| `/mnt/video/_downloads` | Optioneel: server download pad (zelf te configureren) |
 
 ---
 
@@ -110,13 +119,18 @@ Downloads worden opgeslagen als:
 services:
   iptv-downloader:
     image: ghcr.io/richrdj/iptv-downloader:latest
-    container_name: iptv-downloader
     ports:
-      - "2233:2233"
+      - target: 2233
+        published: 2233
+        mode: host
     volumes:
       - iptv_config:/config
       - iptv_downloads:/downloads
-    restart: unless-stopped
+      - /mnt/video/_downloads:/mnt/video/_downloads
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
 
 volumes:
   iptv_config:
@@ -130,10 +144,9 @@ volumes:
 | Component | Keuze |
 |-----------|-------|
 | Backend | Python 3.12 + Flask |
-| Downloader | ffmpeg |
 | IPTV protocol | Xtream Codes API |
 | Container | Docker (image via GHCR) |
-| UI | Vanilla HTML/CSS/JS — geen framework |
+| UI | Vanilla HTML/CSS/JS |
 
 ---
 

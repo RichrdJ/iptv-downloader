@@ -158,6 +158,8 @@ input[type=checkbox]{width:15px;height:15px;cursor:pointer;flex-shrink:0;accent-
 </style>
 
 <script>
+const DL_MODE = '{{ dl_mode }}';
+
 // Accordion
 function toggleSeason(id) {
   const el   = document.getElementById(id);
@@ -229,18 +231,25 @@ async function startSequentialDownload(items) {
     txt.textContent   = item.filename;
     triggerDownload('/stream/' + encodeURIComponent(item.epId)
       + '?ext=' + encodeURIComponent(item.ext)
-      + '&filename=' + encodeURIComponent(item.filename), item.filename);
+      + '&filename=' + encodeURIComponent(item.filename), item.filename, item.epId, item.ext);
     await markHistory([item.epId]);
     if (i < items.length - 1) await new Promise(r => setTimeout(r, 1500));
   }
 
   fill.style.width  = '100%';
-  title.textContent = `Klaar — ${items.length} aflevering${items.length !== 1 ? 'en' : ''} gestart`;
+  const dest = DL_MODE === 'server' ? ' (server)' : '';
+  title.textContent = `Klaar — ${items.length} aflevering${items.length !== 1 ? 'en' : ''} gestart${dest}`;
   txt.textContent   = '';
   refreshDoneMarks(items.map(i => i.epId));
 }
 
-function triggerDownload(url, filename) {
+function triggerDownload(url, filename, epId, ext) {
+  if (DL_MODE === 'server') {
+    return fetch('/download/server', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({type: 'episode', id: epId, ext: ext, filename: filename})
+    });
+  }
   const a = document.createElement('a');
   a.href = url; a.download = filename;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
@@ -280,7 +289,7 @@ document.querySelectorAll('.dl-btn').forEach(btn => {
     input.setSelectionRange(0, dot > 0 ? dot : input.value.length);
     function go() {
       const fn = input.value.trim() || defName;
-      triggerDownload('/stream/' + encodeURIComponent(epId) + '?ext=' + encodeURIComponent(ext) + '&filename=' + encodeURIComponent(fn), fn);
+      triggerDownload('/stream/' + encodeURIComponent(epId) + '?ext=' + encodeURIComponent(ext) + '&filename=' + encodeURIComponent(fn), fn, epId, ext);
       markHistory([epId]);
       refreshDoneMarks([epId]);
       bar.style.display = 'none';

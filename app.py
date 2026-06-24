@@ -15,7 +15,7 @@ import requests as http
 from flask import (Flask, render_template, request, redirect,
                    url_for, session, Response, stream_with_context, jsonify)
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
@@ -30,7 +30,10 @@ def inject_globals():
                 fav_movie_ids.add(f['movie_id'])
             else:
                 fav_ids.add(f.get('series_id'))
-    return {'version': VERSION, 'fav_ids': fav_ids, 'fav_movie_ids': fav_movie_ids}
+    dl_settings = load_settings() if 'server' in session else {}
+    return {'version': VERSION, 'fav_ids': fav_ids, 'fav_movie_ids': fav_movie_ids,
+            'dl_mode': dl_settings.get('download_mode', 'browser'),
+            'dl_path': dl_settings.get('download_path', '')}
 
 CONFIG_DIR   = Path(os.environ.get('CONFIG_DIR',   '/config'))
 DOWNLOAD_DIR = Path(os.environ.get('DOWNLOAD_DIR', '/downloads'))
@@ -285,7 +288,11 @@ def _settings_file() -> Path:
 
 def load_settings() -> dict:
     f = _settings_file()
-    return json.load(open(f)) if f.exists() else {'sync_interval': 0}
+    defaults = {'sync_interval': 0, 'download_mode': 'browser', 'download_path': '/mnt/video/_downloads'}
+    if f.exists():
+        stored = json.load(open(f))
+        defaults.update(stored)
+    return defaults
 
 
 def save_settings(data: dict):
@@ -716,6 +723,72 @@ def stream_movie(movie_id):
 
 
 # ---------------------------------------------------------------------------
+# Routes — download to container
+# ---------------------------------------------------------------------------
+
+_active_downloads = {}
+
+@app.route('/download/server', methods=['POST'])
+def download_server():
+    client = get_client()
+    if not client:
+        return jsonify(error='not logged in'), 401
+    data     = request.get_json()
+    dtype    = data.get('type', 'episode')
+    item_id  = str(data.get('id'))
+    ext      = data.get('ext', 'mkv')
+    filename = data.get('filename', f'{item_id}.{ext}')
+    settings = load_settings()
+    dl_path  = Path(settings.get('download_path', '/mnt/video/_downloads'))
+
+    if dtype == 'movie':
+        url = client.movie_url(item_id, ext)
+    else:
+        url = client.stream_url(item_id, ext)
+
+    if item_id in _active_downloads:
+        return jsonify(error='already downloading'), 409
+
+    def _download():
+        try:
+            _active_downloads[item_id] = {'filename': filename, 'status': 'downloading'}
+            dl_path.mkdir(parents=True, exist_ok=True)
+            dest = dl_path / filename
+            r = http.get(url, stream=True, timeout=(CONNECTION_TIMEOUT, None),
+                         headers={'User-Agent': 'IPTV-Downloader/1.0'})
+            r.raise_for_status()
+            total = int(r.headers.get('Content-Length', 0))
+            written = 0
+            with open(dest, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=1024 * 256):
+                    if chunk:
+                        f.write(chunk)
+                        written += len(chunk)
+            _active_downloads[item_id] = {'filename': filename, 'status': 'done',
+                                          'size': written}
+        except Exception as e:
+            _active_downloads[item_id] = {'filename': filename, 'status': 'error',
+                                          'error': str(e)}
+
+    t = threading.Thread(target=_download, daemon=True)
+    t.start()
+    return jsonify(ok=True, filename=filename)
+
+
+@app.route('/download/status/<item_id>')
+def download_status(item_id):
+    info = _active_downloads.get(item_id)
+    if not info:
+        return jsonify(status='unknown')
+    return jsonify(**info)
+
+
+@app.route('/download/status')
+def download_status_all():
+    return jsonify(downloads=_active_downloads)
+
+
+# ---------------------------------------------------------------------------
 # Routes — settings
 # ---------------------------------------------------------------------------
 
@@ -733,8 +806,11 @@ def settings():
     if 'server' not in session:
         return redirect(url_for('index'))
     if request.method == 'POST':
-        interval = int(request.form.get('sync_interval', 0))
-        save_settings({'sync_interval': interval})
+        s = load_settings()
+        s['sync_interval']  = int(request.form.get('sync_interval', s.get('sync_interval', 0)))
+        s['download_mode']  = request.form.get('download_mode', s.get('download_mode', 'browser'))
+        s['download_path']  = request.form.get('download_path', '').strip() or s.get('download_path', '/mnt/video/_downloads')
+        save_settings(s)
         return redirect(url_for('settings'))
 
     s     = load_settings()

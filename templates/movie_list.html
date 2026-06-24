@@ -161,11 +161,19 @@ function doDownload() {
   if (!_pendingDl) return;
   const {movieId, ext, defName} = _pendingDl;
   const fn = document.getElementById('rename-input').value.trim() || defName;
-  triggerDownload('/stream/movie/' + encodeURIComponent(movieId) + '?ext=' + encodeURIComponent(ext) + '&filename=' + encodeURIComponent(fn), fn);
+  triggerDownload('/stream/movie/' + encodeURIComponent(movieId) + '?ext=' + encodeURIComponent(ext) + '&filename=' + encodeURIComponent(fn), fn, movieId, ext);
   closeRename();
 }
 
-function triggerDownload(url, filename) {
+const DL_MODE = '{{ dl_mode }}';
+
+function triggerDownload(url, filename, movieId, ext) {
+  if (DL_MODE === 'server') {
+    return fetch('/download/server', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({type: 'movie', id: movieId, ext: ext, filename: filename})
+    });
+  }
   const a = document.createElement('a');
   a.href = url; a.download = filename;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
