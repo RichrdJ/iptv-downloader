@@ -88,7 +88,8 @@ class XtreamClient:
         r = http.get(
             f'{self.server}/player_api.php', params=params,
             timeout=(CONNECTION_TIMEOUT, READ_TIMEOUT),
-            headers={'User-Agent': 'IPTV-Downloader/1.0'}
+            headers={'User-Agent': 'IPTV-Downloader/1.0'},
+            verify=False
         )
         r.raise_for_status()
         return r.json()
@@ -683,7 +684,8 @@ def _proxy_stream(url: str, filename: str):
     try:
         upstream = http.get(url, stream=True,
                             timeout=(CONNECTION_TIMEOUT, None),
-                            headers={'User-Agent': 'IPTV-Downloader/1.0'})
+                            headers={'User-Agent': 'IPTV-Downloader/1.0'},
+                            verify=False)
         upstream.raise_for_status()
     except Exception as e:
         return f'Stream fout: {e}', 502
@@ -755,7 +757,8 @@ def download_server():
             dl_path.mkdir(parents=True, exist_ok=True)
             dest = dl_path / filename
             r = http.get(url, stream=True, timeout=(CONNECTION_TIMEOUT, None),
-                         headers={'User-Agent': 'IPTV-Downloader/1.0'})
+                         headers={'User-Agent': 'IPTV-Downloader/1.0'},
+                         verify=False)
             r.raise_for_status()
             total = int(r.headers.get('Content-Length', 0))
             written = 0
