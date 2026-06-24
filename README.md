@@ -108,8 +108,7 @@ Bij elke download kun je de naam aanpassen via het rename dialoog.
 | Container pad | Omschrijving |
 |---------------|--------------|
 | `/config` | Accounts, cache, favorieten, geschiedenis, instellingen |
-| `/downloads` | Gedownloade bestanden (browser modus) |
-| `/mnt/video/_downloads` | Optioneel: server download pad (zelf te configureren) |
+| `/downloads` | Gedownloade bestanden (bind mount naar je gewenste pad) |
 
 ---
 
@@ -125,8 +124,9 @@ services:
         mode: host
     volumes:
       - iptv_config:/config
-      - iptv_downloads:/downloads
-      - /mnt/video/_downloads:/mnt/video/_downloads
+      - type: bind
+        source: /mnt/video/_downloads
+        target: /downloads
     deploy:
       replicas: 1
       restart_policy:
@@ -134,7 +134,6 @@ services:
 
 volumes:
   iptv_config:
-  iptv_downloads:
 ```
 
 ---

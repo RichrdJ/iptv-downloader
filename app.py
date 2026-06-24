@@ -288,7 +288,7 @@ def _settings_file() -> Path:
 
 def load_settings() -> dict:
     f = _settings_file()
-    defaults = {'sync_interval': 0, 'download_mode': 'browser', 'download_path': '/mnt/video/_downloads'}
+    defaults = {'sync_interval': 0, 'download_mode': 'browser', 'download_path': '/downloads'}
     if f.exists():
         stored = json.load(open(f))
         defaults.update(stored)
