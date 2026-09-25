@@ -6,6 +6,7 @@ import os
 import re
 import threading
 import time
+import unicodedata
 import uuid
 from collections import Counter
 from datetime import timedelta
@@ -52,15 +53,29 @@ _LANGS = ('NL|BE|VL|FL|EN|UK|GB|US|USA|DE|AT|CH|FR|ES|IT|PT|BR|TR|PL|RO|AR|IN|IR
           'GR|HU|CZ|SK|AL|EX|YU|KU|MA|LAT|MULTI|SUB|NF|4K|HD|FHD|UHD')
 _TAG = re.compile(
     r'^\s*(?:'
-    r'[|\[(]\s*[A-Z0-9]{2,5}(?:[\s\-+/][A-Z0-9]{1,5})*\s*[|\])]'   # |NL|  [NL-HD]  (NL)
+    r'(?i:[|\[(]\s*[A-Z0-9]{2,5}(?:[\s\-+/][A-Z0-9]{1,5})*\s*[|\])])'   # |NL|  [nl-HD]  (NL)
     rf'|(?:{_LANGS})(?:[\s\-+/](?:{_LANGS}))*\s*(?:\||:|\s-\s|-\s)'  # NL|  NL:  NL - 
     r')[\s.\-:|]*'
 )
 
 
+# Tekens die providers als "|" gebruiken maar het niet zijn: ｜ ┃ │ ¦ ǀ ∣ ❘ ⎮ ▏ ...
+_PIPES = re.compile('[\u00a6\u01c0\u2223\u2502\u2503\u2506\u2507\u250a\u250b\u254e\u254f'
+                    '\u2758\u23ae\u258f\u2595\uff5c\u05c0\u0964]')
+
+
+def normalize(text: str) -> str:
+    """Unicode-varianten gelijktrekken: full-width -> normaal, rare streepjes -> '|',
+    onzichtbare tekens (zero-width, BOM) weg, harde spaties -> spatie."""
+    text = unicodedata.normalize('NFKC', text or '')
+    text = _PIPES.sub('|', text)
+    text = ''.join(ch for ch in text if unicodedata.category(ch) != 'Cf')
+    return re.sub(r'\s+', ' ', text).strip()
+
+
 def clean_title(name: str) -> str:
     """'|NL| Breaking Bad' -> 'Breaking Bad'. Herhaalt voor gestapelde labels ('|NL| |4K| ...')."""
-    name = (name or '').strip()
+    name = normalize(name)
     for _ in range(4):
         new = _TAG.sub('', name, count=1)
         if new == name or not new.strip():
@@ -71,7 +86,7 @@ def clean_title(name: str) -> str:
 
 def sanitize(name: str) -> str:
     """'Breaking Bad - Pilot' -> 'Breaking.Bad.Pilot'."""
-    name = _ILLEGAL.sub('', name or '')
+    name = _ILLEGAL.sub('', normalize(name))
     name = re.sub(r'[()\[\]{}!,;]', '', name)
     name = re.sub(r'[\s\-_]+', '.', name)
     name = re.sub(r'\.{2,}', '.', name).strip('.')
@@ -79,14 +94,14 @@ def sanitize(name: str) -> str:
 
 
 def sanitize_folder(name: str) -> str:
-    name = _ILLEGAL.sub('', name or '')
+    name = _ILLEGAL.sub('', normalize(name))
     name = re.sub(r'\s+', ' ', name).strip(' .')
     return name[:150] or 'Unknown'
 
 
 def clean_filename(fn: str, fallback: str) -> str:
     """Door de gebruiker aangepaste naam: geen paden, geen verborgen bestanden."""
-    fn = _ILLEGAL.sub('', (fn or '')).replace('..', '.').strip(' .')
+    fn = _ILLEGAL.sub('', normalize(fn)).replace('..', '.').strip(' .')
     return fn[:220] or fallback
 
 
