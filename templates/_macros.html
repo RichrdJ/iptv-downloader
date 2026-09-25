@@ -9,7 +9,7 @@
   {%- set id = item.series_id -%}
   {%- set cover = item.cover -%}
 {%- endif -%}
-{%- set name = item.name or 'Onbekend' -%}
+{%- set name = (item.name|clean) or 'Onbekend' -%}
 <div class="card-wrap" data-name="{{ name|lower }}" data-rating="{{ item.rating|rating or 0 }}" data-added="{{ item.added or item.last_modified or 0 }}">
   {% if kind == 'movie' and history and ('m' ~ id) in history %}<span class="done-flag">✓</span>{% endif %}
   {% if kind == 'series' %}<a class="poster" href="/series/{{ id }}">{% else %}<div class="poster">{% endif %}

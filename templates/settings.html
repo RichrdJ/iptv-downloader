@@ -25,11 +25,12 @@
         <p class="hint">Bestanden komen in <code>{{ download_dir }}/{{ settings.download_subdir }}</code> in de container. Koppel die map als volume naar je NAS of mediamap.</p>
       </div>
       <div class="form-group">
-        <label>Mapstructuur</label>
+        <label>Films</label>
         <div class="seg">
-          <label><input type="radio" name="organize" value="flat" {{ 'checked' if settings.organize == 'flat' }}>Plat<small>alles in één map</small></label>
-          <label><input type="radio" name="organize" value="folders" {{ 'checked' if settings.organize == 'folders' }}>Plex / Jellyfin<small>Series/Naam/Season 01</small></label>
+          <label><input type="radio" name="organize" value="flat" {{ 'checked' if settings.organize == 'flat' }}>Losse bestanden<small>Titel.2024.mkv</small></label>
+          <label><input type="radio" name="organize" value="folders" {{ 'checked' if settings.organize == 'folders' }}>Eigen map per film<small>Titel (2024)/Titel.2024.mkv</small></label>
         </div>
+        <p class="hint">Afleveringen komen altijd in <code>Serienaam/Season 01/</code>.</p>
       </div>
       <div class="form-group">
         <label for="mc">Gelijktijdige downloads</label>

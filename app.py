@@ -47,6 +47,27 @@ _temp_accounts: dict = {}
 
 _ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
+# Taal-/landlabels die providers vóór titels zetten: "|NL| ", "[NL] ", "NL: ", "NL - ", "|NL-HD| " ...
+_LANGS = ('NL|BE|VL|FL|EN|UK|GB|US|USA|DE|AT|CH|FR|ES|IT|PT|BR|TR|PL|RO|AR|IN|IR|RU|SE|NO|DK|FI|'
+          'GR|HU|CZ|SK|AL|EX|YU|KU|MA|LAT|MULTI|SUB|NF|4K|HD|FHD|UHD')
+_TAG = re.compile(
+    r'^\s*(?:'
+    r'[|\[(]\s*[A-Z0-9]{2,5}(?:[\s\-+/][A-Z0-9]{1,5})*\s*[|\])]'   # |NL|  [NL-HD]  (NL)
+    rf'|(?:{_LANGS})(?:[\s\-+/](?:{_LANGS}))*\s*(?:\||:|\s-\s|-\s)'  # NL|  NL:  NL - 
+    r')[\s.\-:|]*'
+)
+
+
+def clean_title(name: str) -> str:
+    """'|NL| Breaking Bad' -> 'Breaking Bad'. Herhaalt voor gestapelde labels ('|NL| |4K| ...')."""
+    name = (name or '').strip()
+    for _ in range(4):
+        new = _TAG.sub('', name, count=1)
+        if new == name or not new.strip():
+            break
+        name = new
+    return name.strip()
+
 
 def sanitize(name: str) -> str:
     """'Breaking Bad - Pilot' -> 'Breaking.Bad.Pilot'."""
@@ -85,6 +106,8 @@ def movie_year(m: dict) -> str:
 
 
 def episode_filename(show, season, ep, title, ext):
+    show = clean_title(show)
+    title = clean_title(title)
     title_part = ''
     if title and title.strip():
         t = sanitize(title)
@@ -103,6 +126,7 @@ def strip_year(name):
 
 
 def movie_filename(name, year, ext):
+    name = clean_title(name)
     m = _TRAILING_YEAR.search(name or '')
     year = year or (m.group(1) if m else '')
     base = sanitize(re.sub(r'[()\[\]]', '', strip_year(name)))
@@ -131,6 +155,7 @@ def format_duration(d):
 app.jinja_env.globals.update(movie_filename=movie_filename, movie_year=movie_year)
 app.jinja_env.filters['rating'] = format_rating
 app.jinja_env.filters['dur'] = format_duration
+app.jinja_env.filters['clean'] = clean_title
 
 
 # ---------------------------------------------------------------------------
@@ -303,13 +328,14 @@ def download_root() -> Path:
 
 
 def build_dest(kind, filename, show='', season=0, title='', year=''):
+    """Afleveringen: <root>/Serienaam/Season 01/<bestand>
+    Films:        <root>/<bestand>, of <root>/Titel (Jaar)/<bestand> als 'organize' = folders."""
     root = download_root()
-    if db.load_settings()['organize'] == 'folders':
-        if kind == 'episode':
-            folder = root / 'Series' / sanitize_folder(show) / f'Season {season:02d}'
-        else:
-            title = strip_year(title)
-            folder = root / 'Films' / sanitize_folder(f'{title} ({year})' if year else title)
+    if kind == 'episode':
+        folder = root / sanitize_folder(clean_title(show)) / f'Season {max(season, 0):02d}'
+    elif db.load_settings()['organize'] == 'folders':
+        title = strip_year(clean_title(title))
+        folder = root / sanitize_folder(f'{title} ({year})' if year else title)
     else:
         folder = root
     dest = (folder / filename).resolve()
@@ -476,7 +502,7 @@ def series(acc, series_id):
         if not meta.get('name'):   # sommige providers laten info leeg -> uit catalogus halen
             meta = {**next((s for s in catalog(acc).get('series', [])
                             if safe_int(s.get('series_id')) == series_id), {}), **meta}
-        show_name = meta.get('name') or 'Onbekend'
+        show_name = clean_title(meta.get('name')) or 'Onbekend'
         history = db.load_history(db.account_key(acc))
         for s in sorted(info['episodes'], key=safe_int):
             eps = []
@@ -487,7 +513,7 @@ def series(acc, series_id):
                 ep_info = ep.get('info') if isinstance(ep.get('info'), dict) else {}
                 eps.append({
                     'id': ep.get('id'), 'num': num, 'season': season, 'ext': ext,
-                    'title': ep.get('title') or '',
+                    'title': clean_title(ep.get('title')),
                     'duration': ep_info.get('duration') or '',
                     'plot': ep_info.get('plot') or '',
                     'filename': episode_filename(show_name, season, num, ep.get('title'), ext),

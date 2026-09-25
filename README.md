@@ -12,7 +12,8 @@ Een zelfgehoste web-app om series en films van Xtream Codes IPTV-providers te do
 - **Hervatten & opnieuw proberen** — onderbroken downloads gaan verder waar ze waren; tijdelijke fouten worden automatisch opnieuw geprobeerd
 - **Geen halve bestanden** — er wordt naar `.part` geschreven en pas hernoemd als het bestand compleet is
 - **Wachtrij overleeft herstarts** van de container
-- **Plex / Jellyfin-mapstructuur** (optioneel): `Series/Naam/Season 01/…` en `Films/Titel (Jaar)/…`
+- **Plex / Jellyfin-mapstructuur** — afleveringen in `Serienaam/Season 01/`, films optioneel in `Titel (Jaar)/`
+- **Nette namen** — provider-labels zoals `|NL|`, `[NL]` of `NL:` worden vooraan titels weggehaald
 - **Browserdownload** als alternatief, met ondersteuning voor hervatten
 - **Series & films** met covers, detailpagina, genre, beoordeling, cast en samenvatting
 - **Recent toegevoegd**, categorieën met aantallen en één zoekbalk voor series én films (sneltoets `/`)
@@ -72,11 +73,14 @@ Breaking.Bad.S01E02.Cats.in.the.Bag.mkv
 The.Matrix.1999.mkv
 ```
 
-Bij elke download kun je de naam aanpassen. Met de Plex/Jellyfin-structuur aan:
+Bij elke download kun je de naam aanpassen. Labels van de provider zoals `|NL|`, `[NL]`, `NL:` of `|NL-HD|` worden automatisch weggehaald.
+
+Serverdownloads komen zo op schijf:
 
 ```
-/downloads/Series/Breaking Bad/Season 01/Breaking.Bad.S01E01.Pilot.mkv
-/downloads/Films/The Matrix (1999)/The.Matrix.1999.mkv
+/downloads/Breaking Bad/Season 01/Breaking.Bad.S01E01.Pilot.mkv
+/downloads/Breaking Bad/Season 02/Breaking.Bad.S02E01.Seven.Thirty.Seven.mkv
+/downloads/The.Matrix.1999.mkv        (of: The Matrix (1999)/The.Matrix.1999.mkv)
 ```
 
 ---
@@ -110,7 +114,7 @@ In Instellingen kun je nog een **submap** binnen `/downloads` kiezen. Het pad mo
 
 Alles wordt automatisch gemigreerd: accounts, favorieten, geschiedenis en instellingen blijven behouden.
 
-E�n ding moet je zelf aanpassen: de oude instelling *Download pad* (bijv. `/mnt/video/_downloads`) bestaat niet meer. Serverdownloads gaan nu altijd naar `DOWNLOAD_DIR` (standaard `/downloads`), eventueel met een submap. Stonden je downloads eerder op een pad dat niet gemount was, dan kwamen ze in de container terecht. Controleer daarom je bind-mount in `stack.yml`.
+Eén ding moet je zelf aanpassen: de oude instelling *Download pad* (bijv. `/mnt/video/_downloads`) bestaat niet meer. Serverdownloads gaan nu altijd naar `DOWNLOAD_DIR` (standaard `/downloads`), eventueel met een submap. Stonden je downloads eerder op een pad dat niet gemount was, dan kwamen ze in de container terecht. Controleer daarom je bind-mount in `stack.yml`.
 
 ---
 
