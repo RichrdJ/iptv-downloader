@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import poster %}
+{% block title %}Zoeken: {{ q }} — IPTV Downloader{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Zoekresultaten voor “{{ q }}”</h1>
+</div>
+
+{% if not series and not movies %}
+<div class="empty"><div class="icon">🔍</div><p>Niets gevonden. Probeer een ander woord, of <b>Sync</b> als het nieuw is.</p></div>
+{% endif %}
+
+{% if series %}
+<h2 style="margin-top:0">Series <span class="badge">{{ series|length }}{{ '+' if series|length >= 300 }}</span></h2>
+<div class="poster-grid">{% for s in series %}{{ poster('series', s, fav_ids) }}{% endfor %}</div>
+{% endif %}
+
+{% if movies %}
+<h2>Films <span class="badge">{{ movies|length }}{{ '+' if movies|length >= 300 }}</span></h2>
+<div class="poster-grid">{% for m in movies %}{{ poster('movie', m, fav_movie_ids, history) }}{% endfor %}</div>
+{% endif %}
+{% endblock %}

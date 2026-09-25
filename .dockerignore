@@ -1,0 +1,9 @@
+.git
+.github
+*.md
+*.svg
+!static/*.svg
+config/
+downloads/
+__pycache__/
+*.pyc

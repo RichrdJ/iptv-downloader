@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="empty">
+  <div class="icon">⚠️</div>
+  <p style="color:var(--text);margin-bottom:.4rem">Er ging iets mis bij de provider</p>
+  <p>{{ error }}</p>
+  <p style="margin-top:1.2rem"><a class="btn btn-secondary btn-sm" href="javascript:history.back()">← Terug</a>
+     <a class="btn btn-primary btn-sm" href="javascript:location.reload()">Opnieuw proberen</a></p>
+</div>
+{% endblock %}

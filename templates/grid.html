@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import poster, toolbar %}
+{% set fav_set = fav_movie_ids if kind == 'movie' else fav_ids %}
+{% block title %}{{ title }} — IPTV Downloader{% endblock %}
+{% block content %}
+<div class="page-header">
+  <a href="{{ back }}" class="btn btn-secondary btn-sm">← Terug</a>
+  <h1>{{ title }}</h1>
+  <span class="badge" id="count-badge">{{ items|length }}</span>
+</div>
+
+{% if items %}
+{{ toolbar() }}
+<div class="poster-grid" id="grid" data-filterable>
+  {% for item in items %}{{ poster(kind, item, fav_set, history) }}{% endfor %}
+</div>
+<p id="no-results" class="empty" hidden>Geen resultaten.</p>
+{% else %}
+<div class="empty"><div class="icon">🔍</div><p>Niets gevonden in deze categorie.</p></div>
+{% endif %}
+{% endblock %}

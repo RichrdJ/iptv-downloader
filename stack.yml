@@ -5,6 +5,9 @@ services:
       - target: 2233
         published: 2233
         mode: host
+    environment:
+      TZ: Europe/Amsterdam
+      # APP_PASSWORD: kies-een-wachtwoord
     volumes:
       - iptv_config:/config
       - type: bind

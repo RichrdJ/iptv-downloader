@@ -1,119 +1,23 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import poster %}
+{% block title %}Favorieten — IPTV Downloader{% endblock %}
 {% block content %}
-
 <div class="page-header">
   <h1>Favorieten</h1>
   <span class="badge">{{ total }}</span>
 </div>
 
-{% if fav_series or fav_movies %}
-
 {% if fav_series %}
-<h2>Series</h2>
-<div class="series-grid fav-grid">
-  {% for s in fav_series %}
-  <div class="series-card-wrap" data-type="series">
-    <a class="series-card" href="/series/{{ s.series_id }}">
-      <div class="cover-wrap">
-        {% if s.cover %}
-        <img src="{{ s.cover }}" loading="lazy" class="series-cover"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-        <div class="cover-placeholder" style="display:none">▶</div>
-        {% else %}
-        <div class="cover-placeholder">▶</div>
-        {% endif %}
-      </div>
-      <div class="card-body">
-        <div class="name">{{ s.name }}</div>
-      </div>
-    </a>
-    <button class="fav-btn active"
-            title="Verwijder uit favorieten"
-            data-type="series"
-            data-id="{{ s.series_id }}"
-            data-name="{{ s.name }}"
-            data-cover="{{ s.cover or '' }}">♥</button>
-  </div>
-  {% endfor %}
-</div>
+<h2 style="margin-top:0">Series</h2>
+<div class="poster-grid">{% for s in fav_series %}{{ poster('series', s, fav_ids, remove_on_unfav=True) }}{% endfor %}</div>
 {% endif %}
 
 {% if fav_movies %}
-<h2 style="margin-top:1.5rem">Films</h2>
-<div class="series-grid fav-grid">
-  {% for m in fav_movies %}
-  <div class="series-card-wrap" data-type="movie">
-    <div class="series-card">
-      <div class="cover-wrap">
-        {% if m.cover %}
-        <img src="{{ m.cover }}" loading="lazy" class="series-cover"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-        <div class="cover-placeholder" style="display:none">🎬</div>
-        {% else %}
-        <div class="cover-placeholder">🎬</div>
-        {% endif %}
-      </div>
-      <div class="card-body">
-        <div class="name">{{ m.name }}</div>
-      </div>
-    </div>
-    <button class="fav-btn active"
-            title="Verwijder uit favorieten"
-            data-type="movie"
-            data-id="{{ m.movie_id }}"
-            data-name="{{ m.name }}"
-            data-cover="{{ m.cover or '' }}">♥</button>
-  </div>
-  {% endfor %}
-</div>
+<h2>Films</h2>
+<div class="poster-grid">{% for m in fav_movies %}{{ poster('movie', m, fav_movie_ids, remove_on_unfav=True) }}{% endfor %}</div>
 {% endif %}
 
-{% else %}
-<div class="empty">
-  <div class="icon">♡</div>
-  <p>Geen favorieten opgeslagen.<br>Voeg series of films toe via de ♥ knop.</p>
-</div>
+{% if not total %}
+<div class="empty"><div class="icon">♡</div><p>Nog geen favorieten.<br>Tik op ♥ bij een serie of film om hem hier te bewaren.</p></div>
 {% endif %}
-
-<style>
-.series-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:.75rem}
-.series-card-wrap{position:relative}
-.series-card{display:flex;flex-direction:column;background:#141414;border:1px solid #242424;border-radius:8px;overflow:hidden;text-decoration:none;color:inherit;transition:border-color .15s,transform .15s}
-.series-card:hover{border-color:#00d4ff;transform:translateY(-2px)}
-.cover-wrap{width:100%;aspect-ratio:2/3;background:#0a0a0a;overflow:hidden;display:flex;align-items:center;justify-content:center}
-.series-cover{width:100%;height:100%;object-fit:cover;display:block}
-.cover-placeholder{font-size:2rem;color:#222;width:100%;height:100%;display:flex;align-items:center;justify-content:center}
-.card-body{padding:.6rem .75rem}
-.card-body .name{font-size:.8rem;font-weight:500;color:#e2e2e2;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.fav-btn{position:absolute;top:.4rem;right:.4rem;background:#000000aa;border:none;color:#444;font-size:1rem;width:28px;height:28px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:color .15s,background .15s}
-.fav-btn:hover,.fav-btn.active{color:#ff4466;background:#000000cc}
-.empty{text-align:center;padding:4rem 2rem;color:#555}
-.empty .icon{font-size:3rem;margin-bottom:1rem}
-</style>
-
-<script>
-document.querySelectorAll('.fav-btn').forEach(btn => {
-  btn.addEventListener('click', async function() {
-    const wrap = this.closest('.series-card-wrap');
-    const type = this.dataset.type || 'series';
-    const body = {type, name: this.dataset.name, cover: this.dataset.cover};
-    body[type === 'movie' ? 'movie_id' : 'series_id'] = +this.dataset.id;
-    const resp = await fetch('/favorites/toggle', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(body)
-    });
-    const data = await resp.json();
-    if (!data.is_fav) {
-      wrap.style.transition = 'opacity .3s';
-      wrap.style.opacity = '0';
-      setTimeout(() => {
-        wrap.remove();
-        if (document.querySelectorAll('.series-card-wrap').length === 0) location.reload();
-      }, 300);
-    }
-  });
-});
-</script>
-
 {% endblock %}

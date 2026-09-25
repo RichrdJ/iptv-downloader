@@ -3,6 +3,8 @@ name: Build & Push Docker image
 on:
   push:
     branches: [main]
+    tags: ['v*']
+  pull_request:
   workflow_dispatch:
 
 env:
@@ -17,35 +19,48 @@ jobs:
       packages: write
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Lint
+        run: |
+          pip install pyflakes
+          python -m pyflakes app.py iptv/
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
+      - name: Metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-
 
-      - name: Build and push
-        uses: docker/build-push-action@v5
+      - name: Build and push (amd64 + arm64)
+        uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Trigger Portainer redeploy
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && env.WEBHOOK != ''
         env:
           WEBHOOK: ${{ secrets.PORTAINER_WEBHOOK }}
-        if: env.WEBHOOK != ''
-        run: curl -s -X POST "$WEBHOOK"
+        run: curl -fsS -X POST "$WEBHOOK"

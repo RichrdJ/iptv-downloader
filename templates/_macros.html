@@ -1,0 +1,49 @@
+{# Posterkaart voor series en films #}
+{% macro poster(kind, item, fav_set, history=None, remove_on_unfav=False) %}
+{%- if kind == 'movie' -%}
+  {%- set id = item.stream_id if item.stream_id is defined else item.movie_id -%}
+  {%- set cover = item.stream_icon if item.stream_icon is defined else item.cover -%}
+  {%- set year = movie_year(item) -%}
+  {%- set ext = item.container_extension or 'mp4' -%}
+{%- else -%}
+  {%- set id = item.series_id -%}
+  {%- set cover = item.cover -%}
+{%- endif -%}
+{%- set name = item.name or 'Onbekend' -%}
+<div class="card-wrap" data-name="{{ name|lower }}" data-rating="{{ item.rating|rating or 0 }}" data-added="{{ item.added or item.last_modified or 0 }}">
+  {% if kind == 'movie' and history and ('m' ~ id) in history %}<span class="done-flag">✓</span>{% endif %}
+  {% if kind == 'series' %}<a class="poster" href="/series/{{ id }}">{% else %}<div class="poster">{% endif %}
+    <div class="cover">
+      <span class="ph">{{ '🎬' if kind == 'movie' else '▶' }}</span>
+      {% if cover %}<img src="{{ cover }}" loading="lazy" alt="" referrerpolicy="no-referrer" onerror="this.remove()">{% endif %}
+    </div>
+    <div class="body">
+      <div class="name" title="{{ name }}">{{ name }}</div>
+      <div class="meta">
+        {% if item.rating|rating %}<span>★ {{ item.rating|rating }}</span>{% endif %}
+        {% if kind == 'movie' and year %}<span>{{ year }}</span>{% endif %}
+      </div>
+    </div>
+  {% if kind == 'series' %}</a>{% else %}</div>{% endif %}
+  <button class="card-btn fav-btn{{ ' active' if (id|int) in fav_set }}" title="Favoriet"
+          data-type="{{ kind }}" data-id="{{ id }}" data-name="{{ name }}" data-cover="{{ cover or '' }}"
+          {% if remove_on_unfav %}data-remove-on-unfav="1"{% endif %}>♥</button>
+  {% if kind == 'movie' %}
+  <button class="card-btn dl-btn-card" title="Downloaden" data-download
+          data-type="movie" data-id="{{ id }}" data-ext="{{ ext }}" data-title="{{ name }}" data-year="{{ year }}"
+          data-filename="{{ movie_filename(name, year, ext) }}" data-label="{{ name }}">↓</button>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% macro toolbar(count) %}
+<div class="toolbar">
+  <input type="search" id="filter-input" placeholder="Filter op naam…" autocomplete="off">
+  <select id="sort-select" aria-label="Sorteren">
+    <option value="name-asc">A → Z</option>
+    <option value="name-desc">Z → A</option>
+    <option value="rating-desc">★ Beoordeling</option>
+    <option value="added-desc">Nieuwste eerst</option>
+  </select>
+</div>
+{% endmacro %}

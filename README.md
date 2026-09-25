@@ -2,35 +2,35 @@
   <img src="banner.svg" alt="IPTV Downloader" width="100%"/>
 </p>
 
-Een zelfgehoste web-applicatie om series en films van Xtream IPTV providers te downloaden. Selecteer losse afleveringen, een heel seizoen of download films met een klik. Draait als Docker container.
+Een zelfgehoste web-app om series en films van Xtream Codes IPTV-providers te downloaden. Selecteer losse afleveringen, een heel seizoen of een hele serie, en laat de server ze op de achtergrond binnenhalen. Draait als Docker-container (amd64 en arm64).
 
 ---
 
 ## Features
 
-- **Web UI** — toegankelijk via de browser, geen installatie nodig
-- **M3U+ URL** — plak je provider URL en je bent klaar
-- **Series & Films** — beide volledig ondersteund met eigen navigatie
-- **Bulk download** — selecteer meerdere afleveringen of een heel seizoen
-- **Browser of server download** — download naar je browser of direct naar een pad op de container
-- **Omslagafbeeldingen** — covers voor series en films, lazy loaded
-- **Series detailpagina** — hero header met poster, genre, beoordeling, cast en samenvatting
-- **Favorieten** — sla series en films op in je watchlist per account
-- **Downloadgeschiedenis** — gedownloade afleveringen krijgen een markering
-- **Sorteren & filteren** — zoek op naam, sorteer op A-Z of beoordeling
-- **Slimme naamgeving** — `Show.Name.S01E03.Episode.Title.mkv` met rename optie
-- **Auto-sync** — periodiek nieuwe content ophalen (1u, 6u, 12u, 3 dagen)
-- **Accounts opslaan** — meerdere providers opslaan, bewerken en wisselen
-- **Auto-connect** — standaard account wordt automatisch verbonden
+- **Downloadwachtrij op de server** — voortgang, snelheid en resterende tijd; instelbaar aantal gelijktijdige downloads
+- **Hervatten & opnieuw proberen** — onderbroken downloads gaan verder waar ze waren; tijdelijke fouten worden automatisch opnieuw geprobeerd
+- **Geen halve bestanden** — er wordt naar `.part` geschreven en pas hernoemd als het bestand compleet is
+- **Wachtrij overleeft herstarts** van de container
+- **Plex / Jellyfin-mapstructuur** (optioneel): `Series/Naam/Season 01/…` en `Films/Titel (Jaar)/…`
+- **Browserdownload** als alternatief, met ondersteuning voor hervatten
+- **Series & films** met covers, detailpagina, genre, beoordeling, cast en samenvatting
+- **Recent toegevoegd**, categorieën met aantallen en één zoekbalk voor series én films (sneltoets `/`)
+- **Slim selecteren** — heel seizoen, alles, alleen niet-gedownloade afleveringen, of een reeks met Shift+klik
+- **Favorieten** en **downloadgeschiedenis** per account
+- **Auto-sync** — periodiek nieuwe content ophalen (1 uur t/m 3 dagen)
+- **Meerdere accounts** opslaan, bewerken en wisselen; het standaardaccount verbindt automatisch
+- **Abonnementsinfo** — vervaldatum en maximaal aantal verbindingen
+- **Optionele wachtwoordbeveiliging** van de web-UI
 
 ---
 
 ## Snel starten
 
-### Via Portainer (aanbevolen)
+### Via Portainer
 
-1. Ga naar **Stacks > Add stack**
-2. Plak de inhoud van [`stack.yml`](stack.yml)
+1. Ga naar **Stacks → Add stack**
+2. Plak de inhoud van [`stack.yml`](stack.yml) en pas het bind-pad aan naar je eigen mediamap
 3. Deploy — bereikbaar op poort `2233`
 
 ### Via Docker Compose
@@ -41,111 +41,96 @@ cd iptv-downloader
 docker compose up -d
 ```
 
-Open vervolgens [http://localhost:2233](http://localhost:2233)
+Open daarna <http://localhost:2233>.
 
 ---
 
 ## Gebruik
 
-### 1. Verbinden
+1. **Verbinden** — plak je M3U+ URL (`http://provider.com/get.php?username=…&password=…&type=m3u_plus`) of vul server, gebruikersnaam en wachtwoord handmatig in.
+2. **Zoeken** — blader door categorieën of gebruik de zoekbalk bovenin.
+3. **Downloaden** — klik op ↓ bij een aflevering of film, of selecteer meerdere afleveringen en gebruik de balk onderin.
 
-Plak je M3U+ URL:
-```
-http://jouw-provider.com/get.php?username=gebruiker&password=wachtwoord&type=m3u_plus
-```
+### Server- of browsermodus
 
-Of kies voor **handmatig invoeren** en vul server, gebruikersnaam en wachtwoord apart in.
+In **Instellingen** kies je waar downloads naartoe gaan:
 
-Vink **Account opslaan** aan om de gegevens te bewaren voor een volgende keer.
+| Modus | Wat gebeurt er | Geschikt voor |
+|---|---|---|
+| **Server** (aanbevolen) | Wachtrij in de container, schrijft naar `/downloads` | Hele seizoenen, NAS, Plex/Jellyfin |
+| **Browser** | Bestand komt via je browser binnen | Losse afleveringen op je eigen apparaat |
 
-### 2. Series & films zoeken
-
-- Blader door de **categorielijst** (apart voor series en films)
-- Of gebruik de **zoekbalk** om direct op naam te zoeken
-- Gebruik **sorteren en filteren** om snel te vinden wat je zoekt
-
-### 3. Downloaden
-
-**Series:**
-1. Klik op een serie om de detailpagina te openen
-2. Selecteer losse afleveringen of een heel seizoen via de checkboxes
-3. Klik op de downloadknop — pas eventueel de bestandsnaam aan
-
-**Films:**
-1. Blader door filmcategorieen of zoek op naam
-2. Klik op de downloadknop op een filmkaart
-3. Pas eventueel de bestandsnaam aan en bevestig
-
-**Download naar server:**
-Ga naar **Instellingen** en kies "Server / container" als download modus. Stel het pad in (bijv. `/mnt/video/_downloads`) en zorg dat dit pad als volume gemount is.
+> **Let op:** de meeste providers staan maar 1–2 verbindingen tegelijk toe. Zet *Gelijktijdige downloads* niet hoger dan je abonnement toestaat (dit staat in Instellingen → Status). Een stream kijken terwijl je downloadt telt ook als verbinding.
 
 ---
 
-## Bestandsnaming
-
-Downloads gebruiken punten als scheidingsteken:
+## Bestandsnamen
 
 ```
 Breaking.Bad.S01E01.Pilot.mkv
 Breaking.Bad.S01E02.Cats.in.the.Bag.mkv
-The.Matrix.1999.mp4
+The.Matrix.1999.mkv
 ```
 
-Bij elke download kun je de naam aanpassen via het rename dialoog.
+Bij elke download kun je de naam aanpassen. Met de Plex/Jellyfin-structuur aan:
+
+```
+/downloads/Series/Breaking Bad/Season 01/Breaking.Bad.S01E01.Pilot.mkv
+/downloads/Films/The Matrix (1999)/The.Matrix.1999.mkv
+```
 
 ---
 
 ## Configuratie
 
 | Omgevingsvariabele | Standaard | Omschrijving |
-|--------------------|-----------|--------------|
-| `CONFIG_DIR` | `/config` | Locatie accounts, cache, favorieten en instellingen |
-| `DOWNLOAD_DIR` | `/downloads` | Locatie gedownloade bestanden |
-| `SECRET_KEY` | willekeurig | Flask sessie sleutel (stel in voor persistente sessies) |
+|---|---|---|
+| `APP_PASSWORD` | *(leeg)* | Wachtwoord voor de web-UI. **Aanbevolen** als de app buiten je LAN bereikbaar is |
+| `CONFIG_DIR` | `/config` | Accounts, cache, favorieten, geschiedenis, wachtrij en instellingen |
+| `DOWNLOAD_DIR` | `/downloads` | Hoofdmap voor serverdownloads |
+| `SECRET_KEY` | *(automatisch)* | Sessiesleutel. Wordt anders één keer gegenereerd en in `/config` bewaard |
+| `VERIFY_SSL` | `false` | SSL-certificaten van de provider controleren (veel providers hebben er geen geldig) |
+| `THREADS` | `16` | Aantal webserver-threads (elke browserdownload bezet er één) |
+| `PORT` | `2233` | Poort in de container |
+| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` |
+| `TZ` | `UTC` | Tijdzone, bijv. `Europe/Amsterdam` |
 
 ### Volumes
 
-| Container pad | Omschrijving |
-|---------------|--------------|
-| `/config` | Accounts, cache, favorieten, geschiedenis, instellingen |
-| `/downloads` | Gedownloade bestanden (bind mount naar je gewenste pad) |
+| Container-pad | Omschrijving |
+|---|---|
+| `/config` | Alle app-data (bevat je provider-wachtwoorden — zet er geen publieke share op) |
+| `/downloads` | Serverdownloads. Bind-mount naar je NAS of mediamap |
+
+In Instellingen kun je nog een **submap** binnen `/downloads` kiezen. Het pad moet binnen `/downloads` blijven, want alles daarbuiten staat niet op een volume en is weg na een update.
 
 ---
 
-## Stack YAML
+## Upgraden van v2
 
-```yaml
-services:
-  iptv-downloader:
-    image: ghcr.io/richrdj/iptv-downloader:latest
-    ports:
-      - target: 2233
-        published: 2233
-        mode: host
-    volumes:
-      - iptv_config:/config
-      - type: bind
-        source: /mnt/video/_downloads
-        target: /downloads
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: any
+Alles wordt automatisch gemigreerd: accounts, favorieten, geschiedenis en instellingen blijven behouden.
 
-volumes:
-  iptv_config:
-```
+E�n ding moet je zelf aanpassen: de oude instelling *Download pad* (bijv. `/mnt/video/_downloads`) bestaat niet meer. Serverdownloads gaan nu altijd naar `DOWNLOAD_DIR` (standaard `/downloads`), eventueel met een submap. Stonden je downloads eerder op een pad dat niet gemount was, dan kwamen ze in de container terecht. Controleer daarom je bind-mount in `stack.yml`.
 
 ---
 
 ## Techniek
 
 | Component | Keuze |
-|-----------|-------|
-| Backend | Python 3.12 + Flask |
-| IPTV protocol | Xtream Codes API |
-| Container | Docker (image via GHCR) |
-| UI | Vanilla HTML/CSS/JS |
+|---|---|
+| Backend | Python 3.12, Flask, Gunicorn |
+| IPTV-protocol | Xtream Codes API |
+| Container | Docker, multi-arch image via GHCR |
+| UI | Vanilla HTML/CSS/JS, geen build-stap |
+
+```
+app.py              routes
+iptv/xtream.py      Xtream API-client
+iptv/downloads.py   downloadwachtrij (hervatten, retries, persistentie)
+iptv/storage.py     opslag in /config (atomische writes, cache)
+templates/          Jinja-templates
+static/             app.css, app.js
+```
 
 ---
 

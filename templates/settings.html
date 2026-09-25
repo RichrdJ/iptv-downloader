@@ -1,142 +1,81 @@
 {% extends 'base.html' %}
+{% block title %}Instellingen — IPTV Downloader{% endblock %}
 {% block content %}
+<div class="page-header"><h1>Instellingen</h1></div>
 
-<div class="page-header">
-  <h1>Instellingen</h1>
-</div>
+{% if saved %}<div class="alert ok" style="max-width:640px">Instellingen opgeslagen.</div>{% endif %}
+{% if error %}<div class="alert error" style="max-width:640px">{{ error }}</div>{% endif %}
 
-<div style="display:flex;flex-direction:column;gap:1.25rem;max-width:560px">
+<form method="POST" class="settings-grid">
 
-  <!-- Downloads -->
   <div class="card">
-    <h2 style="margin-bottom:1rem">Downloads</h2>
-    <p style="font-size:.85rem;color:#666;margin-bottom:1.25rem;line-height:1.6">
-      Kies waar downloads naartoe gaan: naar je browser of naar een pad op de server/container.
-    </p>
-
-    <form method="POST" action="/settings">
-      <input type="hidden" name="sync_interval" value="{{ settings.sync_interval }}">
-
-      <div class="interval-grid" style="margin-bottom:1rem">
-        <label class="interval-option {{ 'selected' if settings.download_mode == 'browser' else '' }}">
-          <input type="radio" name="download_mode" value="browser"
-                 {{ 'checked' if settings.download_mode == 'browser' else '' }}>
-          <span class="interval-label">Browser</span>
-        </label>
-        <label class="interval-option {{ 'selected' if settings.download_mode == 'server' else '' }}">
-          <input type="radio" name="download_mode" value="server"
-                 {{ 'checked' if settings.download_mode == 'server' else '' }}>
-          <span class="interval-label">Server / container</span>
-        </label>
-      </div>
-
-      <div id="server-path-group" style="display:{{ 'block' if settings.download_mode == 'server' else 'none' }}">
-        <div class="form-group">
-          <label>Download pad</label>
-          <input type="text" name="download_path" value="{{ settings.download_path }}"
-                 placeholder="/mnt/video/_downloads"
-                 style="font-family:monospace;font-size:.82rem">
-        </div>
-        <p style="font-size:.78rem;color:#555;margin-top:-.5rem;line-height:1.5">
-          Zorg dat dit pad als volume gemount is in de container.
-        </p>
-      </div>
-
-      <button type="submit" class="btn btn-primary" style="margin-top:.75rem">Opslaan</button>
-    </form>
-  </div>
-
-  <!-- Auto-sync -->
-  <div class="card">
-    <h2 style="margin-bottom:1rem">Automatische sync</h2>
-    <p style="font-size:.85rem;color:#666;margin-bottom:1.25rem;line-height:1.6">
-      De app haalt periodiek nieuwe series en films op van je IPTV-provider.
-      Zo verschijnen nieuwe toevoegingen automatisch zonder dat je handmatig hoeft te syncen.
-    </p>
-
-    <form method="POST" action="/settings">
-      <input type="hidden" name="download_mode" value="{{ settings.download_mode }}">
-      <input type="hidden" name="download_path" value="{{ settings.download_path }}">
-      <div class="interval-grid">
-        {% for val, label in sync_options %}
-        <label class="interval-option {{ 'selected' if settings.sync_interval == val else '' }}">
-          <input type="radio" name="sync_interval" value="{{ val }}"
-                 {{ 'checked' if settings.sync_interval == val else '' }}>
-          <span class="interval-label">{{ label }}</span>
-        </label>
-        {% endfor %}
-      </div>
-      <button type="submit" class="btn btn-primary" style="margin-top:1.25rem">Opslaan</button>
-    </form>
-  </div>
-
-  <!-- Sync status -->
-  <div class="card">
-    <h2 style="margin-bottom:1rem">Synchronisatiestatus</h2>
-    <div class="status-grid">
-      <div class="status-row">
-        <span class="status-key">Laatste sync</span>
-        <span class="status-val">{{ cache_age or '—' }}</span>
-      </div>
-      <div class="status-row">
-        <span class="status-key">Volgende sync</span>
-        <span class="status-val">
-          {% if settings.sync_interval == 0 %}
-            <span style="color:#444">Uitgeschakeld</span>
-          {% elif next_sync %}
-            over {{ next_sync }}
-          {% else %}
-            —
-          {% endif %}
-        </span>
-      </div>
-      <div class="status-row">
-        <span class="status-key">Interval</span>
-        <span class="status-val">
-          {% for val, label in sync_options %}
-            {% if settings.sync_interval == val %}{{ label }}{% endif %}
-          {% endfor %}
-        </span>
+    <h2>Downloads</h2>
+    <div class="form-group">
+      <label>Waar naartoe?</label>
+      <div class="seg">
+        <label><input type="radio" name="download_mode" value="browser" {{ 'checked' if settings.download_mode == 'browser' }}>Browser<small>naar dit apparaat</small></label>
+        <label><input type="radio" name="download_mode" value="server" {{ 'checked' if settings.download_mode == 'server' }}>Server<small>wachtrij in de container</small></label>
       </div>
     </div>
-    <form method="POST" action="/sync" style="margin-top:1.25rem">
-      <button type="submit" class="btn btn-secondary btn-sm">↻ Nu synchroniseren</button>
-    </form>
+
+    <div class="cond {{ 'show' if settings.download_mode == 'server' }}" id="server-opts">
+      <div class="form-group">
+        <label for="sub">Submap</label>
+        <input type="text" id="sub" name="download_subdir" value="{{ settings.download_subdir }}" placeholder="(leeg = hoofdmap)" style="font-family:ui-monospace,monospace;font-size:.85rem">
+        <p class="hint">Bestanden komen in <code>{{ download_dir }}/{{ settings.download_subdir }}</code> in de container. Koppel die map als volume naar je NAS of mediamap.</p>
+      </div>
+      <div class="form-group">
+        <label>Mapstructuur</label>
+        <div class="seg">
+          <label><input type="radio" name="organize" value="flat" {{ 'checked' if settings.organize == 'flat' }}>Plat<small>alles in één map</small></label>
+          <label><input type="radio" name="organize" value="folders" {{ 'checked' if settings.organize == 'folders' }}>Plex / Jellyfin<small>Series/Naam/Season 01</small></label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="mc">Gelijktijdige downloads</label>
+        <select id="mc" name="max_concurrent" style="width:auto">
+          {% for n in range(1, 6) %}<option value="{{ n }}" {{ 'selected' if settings.max_concurrent == n }}>{{ n }}</option>{% endfor %}
+        </select>
+        <p class="hint">
+          {% if acc_info.max_connections %}Je abonnement staat <b>{{ acc_info.max_connections }}</b> verbinding{{ 'en' if acc_info.max_connections|int != 1 }} toe.{% endif %}
+          Meer dan dat geeft fouten (HTTP 403/458), en kijken tijdens het downloaden telt ook mee.
+        </p>
+      </div>
+    </div>
   </div>
 
+  <div class="card">
+    <h2>Automatische sync</h2>
+    <p class="hint" style="margin:-.3rem 0 1rem">Haalt periodiek de nieuwste series en films op voor het standaardaccount.</p>
+    <div class="seg">
+      {% for val, label in sync_options %}
+      <label><input type="radio" name="sync_interval" value="{{ val }}" {{ 'checked' if settings.sync_interval == val }}>{{ label }}</label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div><button class="btn btn-primary">Opslaan</button></div>
+</form>
+
+<div class="settings-grid" style="margin-top:1.1rem">
+  <div class="card">
+    <h2>Status</h2>
+    <div class="kv"><span>Account</span><span>{{ account.name }}</span></div>
+    {% if acc_info.status %}<div class="kv"><span>Abonnement</span><span>{{ acc_info.status }}</span></div>{% endif %}
+    {% if expires %}<div class="kv"><span>Verloopt op</span><span>{{ expires }}</span></div>{% endif %}
+    {% if acc_info.max_connections %}<div class="kv"><span>Verbindingen</span><span>{{ acc_info.active_cons or 0 }} actief / {{ acc_info.max_connections }} max</span></div>{% endif %}
+    <div class="kv"><span>Laatste sync</span><span>{{ cache_age or '—' }}</span></div>
+    <div class="kv"><span>Volgende sync</span><span>{{ next_sync if settings.sync_interval else 'uitgeschakeld' }}</span></div>
+    <div class="kv"><span>SSL-certificaten controleren</span><span>{{ 'aan' if verify_ssl else 'uit' }} <span class="dim small">(VERIFY_SSL)</span></span></div>
+    <form method="POST" action="/sync" style="margin-top:1rem" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Bezig…'">
+      <button class="btn btn-secondary btn-sm">↻ Nu synchroniseren</button>
+    </form>
+  </div>
 </div>
-
-<style>
-.interval-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:.5rem}
-.interval-option{display:flex;align-items:center;justify-content:center;background:#0d0d0d;border:1px solid #2e2e2e;border-radius:8px;padding:.75rem .5rem;cursor:pointer;transition:border-color .15s,background .15s;text-align:center}
-.interval-option input[type=radio]{display:none}
-.interval-option:hover{border-color:#00d4ff44;background:#111}
-.interval-option.selected,.interval-option:has(input:checked){border-color:#00d4ff;background:#001e2a}
-.interval-label{font-size:.875rem;color:#ccc;font-weight:500}
-.interval-option.selected .interval-label,.interval-option:has(input:checked) .interval-label{color:#00d4ff}
-
-.status-grid{display:flex;flex-direction:column;gap:.5rem}
-.status-row{display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;border-bottom:1px solid #1a1a1a;font-size:.875rem}
-.status-row:last-child{border-bottom:none}
-.status-key{color:#555}
-.status-val{color:#ccc;font-weight:500}
-</style>
-
+{% endblock %}
+{% block scripts %}
 <script>
-document.querySelectorAll('.interval-option input[type=radio]').forEach(radio => {
-  radio.addEventListener('change', () => {
-    const grid = radio.closest('.interval-grid');
-    grid.querySelectorAll('.interval-option').forEach(opt => opt.classList.remove('selected'));
-    radio.closest('.interval-option').classList.add('selected');
-  });
-});
-
-document.querySelectorAll('input[name=download_mode]').forEach(radio => {
-  radio.addEventListener('change', () => {
-    document.getElementById('server-path-group').style.display =
-      document.querySelector('input[name=download_mode]:checked').value === 'server' ? 'block' : 'none';
-  });
-});
+document.querySelectorAll('input[name=download_mode]').forEach(r => r.addEventListener('change', () =>
+  document.getElementById('server-opts').classList.toggle('show', r.value === 'server' && r.checked)));
 </script>
-
 {% endblock %}

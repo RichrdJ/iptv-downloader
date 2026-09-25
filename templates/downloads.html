@@ -1,77 +1,96 @@
 {% extends 'base.html' %}
+{% block title %}Downloads — IPTV Downloader{% endblock %}
 {% block content %}
-
 <div class="page-header">
   <h1>Downloads</h1>
-  <a href="/browse" class="btn btn-secondary btn-sm">+ Nieuwe download</a>
+  <div class="stats" id="stats"></div>
+  <div class="right">
+    <button class="btn btn-secondary btn-sm" id="clear-btn">Afgeronde wissen</button>
+  </div>
 </div>
 
-<div id="jobs"></div>
+{% if settings.download_mode != 'server' %}
+<div class="alert info">
+  Je staat in <b>browsermodus</b>: downloads lopen via je browser en verschijnen hier niet.
+  Zet in <a href="/settings">Instellingen</a> de modus op <b>Server</b> voor een wachtrij met voortgang, hervatten en automatisch opnieuw proberen.
+</div>
+{% else %}
+<p class="small dim" style="margin:-.8rem 0 1.2rem">Max. {{ settings.max_concurrent }} tegelijk · onderbroken downloads worden automatisch hervat.</p>
+{% endif %}
 
+<div id="jobs"><div class="empty"><p>Laden…</p></div></div>
+{% endblock %}
+
+{% block scripts %}
 <script>
-function pct(done, total) {
-  return total ? Math.round(done / total * 100) : 0;
-}
+(() => {
+  const {$, api, esc, fmtBytes, fmtEta, toast, pollSummary} = IPTV;
+  const LABEL = {queued: 'In wachtrij', downloading: 'Bezig', done: 'Klaar', error: 'Mislukt', cancelled: 'Geannuleerd'};
+  const ORDER = {downloading: 0, queued: 1, error: 2, cancelled: 3, done: 4};
+  let timer;
 
-function statusPill(s) {
-  const map = {running:'s-running',done:'s-done',starting:'s-starting',cancelled:'s-cancelled'};
-  const labels = {running:'Bezig',done:'Klaar',starting:'Start…',cancelled:'Geannuleerd'};
-  return `<span class="status-pill ${map[s]||'s-cancelled'}">${labels[s]||s}</span>`;
-}
-
-function renderJob(id, j) {
-  const p = pct(j.done, j.total);
-  const cur = j.current
-    ? `<div class="current-file">↓ ${j.current}</div>`
-    : '';
-  const cancelBtn = (j.status === 'running' || j.status === 'starting')
-    ? `<button class="btn btn-danger btn-sm" onclick="cancelJob('${id}')">Stop</button>`
-    : '';
-  return `
-    <div class="job-card" id="job-${id}">
-      <div class="job-header">
-        <div class="job-label">${j.label}</div>
-        <div style="display:flex;gap:.5rem;align-items:center">
-          ${statusPill(j.status)}
-          ${cancelBtn}
-        </div>
-      </div>
-      <div class="progress-bar">
-        <div class="progress-fill" style="width:${p}%"></div>
-      </div>
-      <div class="progress-text">
-        ${j.done} / ${j.total} afleveringen
-        ${j.failed ? `<span style="color:#f87171;margin-left:.5rem">${j.failed} mislukt</span>` : ''}
-      </div>
-      ${cur}
-    </div>`;
-}
-
-async function cancelJob(id) {
-  await fetch(`/api/cancel/${id}`, {method:'POST'});
-}
-
-async function poll() {
-  try {
-    const r = await fetch('/api/downloads');
-    const data = await r.json();
-    const keys = Object.keys(data);
-    const el = document.getElementById('jobs');
-
-    if (!keys.length) {
-      el.innerHTML = `
-        <div class="empty">
-          <div class="icon">✅</div>
-          <p>Geen actieve downloads.<br>
-          <a href="/browse" style="color:#00d4ff">Browse series</a> om te beginnen.</p>
-        </div>`;
-    } else {
-      el.innerHTML = keys.map(id => renderJob(id, data[id])).join('');
+  function job(j) {
+    const pct = j.total ? Math.min(100, j.bytes / j.total * 100) : (j.status === 'done' ? 100 : 0);
+    const sub = [];
+    if (j.status === 'downloading') {
+      sub.push(`${fmtBytes(j.bytes)}${j.total ? ' / ' + fmtBytes(j.total) : ''}`);
+      if (j.speed) sub.push(`${fmtBytes(j.speed)}/s`);
+      if (j.speed && j.total) sub.push(`nog ${fmtEta((j.total - j.bytes) / j.speed)}`);
+    } else if (j.status === 'done') {
+      sub.push(fmtBytes(j.total || j.bytes));
+      if (j.error) sub.push(esc(j.error));
     }
-  } catch(e) {}
-  setTimeout(poll, 2000);
-}
+    if (j.error && j.status !== 'done') sub.push(`<span class="err">${esc(j.error)}</span>`);
+    sub.push(`<span title="${esc(j.dest)}">📁 ${esc(j.dest)}</span>`);
 
-poll();
+    const btns = [];
+    if (j.status === 'queued' || j.status === 'downloading')
+      btns.push(`<button class="btn btn-danger btn-sm" data-act="cancel" data-id="${j.id}">Stop</button>`);
+    if (j.status === 'error' || j.status === 'cancelled')
+      btns.push(`<button class="btn btn-secondary btn-sm" data-act="retry" data-id="${j.id}">↻ Opnieuw</button>`);
+
+    return `<div class="job ${j.status}">
+      <div class="job-top">
+        <span class="job-name" title="${esc(j.filename)}">${esc(j.label || j.filename)}</span>
+        <span class="pill ${j.status}">${LABEL[j.status] || j.status}${j.status === 'downloading' && j.total ? ' ' + Math.floor(pct) + '%' : ''}</span>
+        ${btns.join('')}
+      </div>
+      ${j.status === 'downloading' || j.status === 'done' ? `<div class="bar"><div style="width:${pct}%"></div></div>` : ''}
+      <div class="job-sub">${sub.join('')}</div>
+    </div>`;
+  }
+
+  async function refresh() {
+    clearTimeout(timer);
+    try {
+      const {jobs, summary} = await api('/api/downloads');
+      jobs.sort((a, b) => (ORDER[a.status] - ORDER[b.status]) ||
+        (a.status === 'done' ? (b.finished || '').localeCompare(a.finished || '') : a.created.localeCompare(b.created)));
+      $('#jobs').innerHTML = jobs.length ? jobs.map(job).join('') :
+        `<div class="empty"><div class="icon">📥</div><p>Nog geen downloads.<br><a href="/browse">Zoek een serie</a> of <a href="/movies">film</a> om te beginnen.</p></div>`;
+      const done = jobs.filter(j => j.status === 'done').length;
+      $('#stats').innerHTML = [
+        summary.active && `<span class="pill downloading">${summary.active} bezig</span>`,
+        summary.queued && `<span class="pill queued">${summary.queued} wachtend</span>`,
+        summary.failed && `<span class="pill error">${summary.failed} mislukt</span>`,
+        done && `<span class="pill done">${done} klaar</span>`,
+      ].filter(Boolean).join('');
+      timer = setTimeout(refresh, summary.active || summary.queued ? 1500 : 8000);
+    } catch (e) {
+      timer = setTimeout(refresh, 5000);
+    }
+  }
+
+  document.addEventListener('click', async e => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    b.disabled = true;
+    try { await api(`/api/downloads/${b.dataset.id}/${b.dataset.act}`, {}); } catch (err) { toast(esc(err.message), 'error'); }
+    refresh(); pollSummary();
+  });
+  $('#clear-btn').addEventListener('click', async () => { await api('/api/downloads/clear', {}); refresh(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+  refresh();
+})();
 </script>
 {% endblock %}

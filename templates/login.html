@@ -1,154 +1,100 @@
 {% extends 'base.html' %}
+{% block title %}Verbinden — IPTV Downloader{% endblock %}
 {% block content %}
+<div class="login-wrap">
+  <h1 style="margin-bottom:.3rem">Verbinden met je provider</h1>
+  <p class="muted small" style="margin-bottom:1.4rem">Xtream Codes compatibele IPTV-providers.</p>
 
-<h1>Connect to IPTV</h1>
+  {% if error %}<div class="alert error">{{ error }}</div>{% endif %}
 
-{% if error %}<div class="error">{{ error }}</div>{% endif %}
-
-<div class="card" style="max-width:500px">
-  <form method="POST" action="/connect">
-    <input type="hidden" name="action" value="login">
-    <input type="hidden" name="manual" value="{{ '1' if show_manual else '0' }}">
-
-    {% if not show_manual %}
-      <div class="form-group">
-        <label>M3U+ URL</label>
-        <input type="url" name="m3u_url"
-               placeholder="http://provider.com/get.php?username=X&password=Y&type=m3u_plus"
-               autofocus required>
-      </div>
-      <p style="font-size:.8rem;color:#555;margin:-0.5rem 0 1rem">
-        Of liever <a href="/?manual=1" style="color:#00d4ff;text-decoration:none">handmatig invoeren</a>
-      </p>
-    {% else %}
-      <div class="form-group">
-        <label>Server URL</label>
-        <input type="text" name="m3u_url" placeholder="http://example.com:8080" autofocus>
-      </div>
-      <div class="form-group">
-        <label>Gebruikersnaam</label>
-        <input type="text" name="username">
-      </div>
-      <div class="form-group">
-        <label>Wachtwoord</label>
-        <input type="password" name="password">
-      </div>
-      <p style="font-size:.8rem;color:#555;margin:-0.5rem 0 1rem">
-        <a href="/" style="color:#00d4ff;text-decoration:none">← M3U+ URL gebruiken</a>
-      </p>
-    {% endif %}
-
-    <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:1rem">
-      <input type="checkbox" name="save_account" id="save_cb">
-      <label for="save_cb" style="margin:0;cursor:pointer">Account opslaan</label>
-    </div>
-
-    <div id="name-row" style="display:none;margin-bottom:1rem">
-      <div class="form-group">
-        <label>Label (optioneel)</label>
-        <input type="text" name="account_name" placeholder="Mijn IPTV">
-      </div>
-    </div>
-
-    <button type="submit" class="btn btn-primary">Verbinden</button>
-  </form>
-</div>
-
-{% if accounts %}
-<hr class="divider">
-<h2>Opgeslagen accounts</h2>
-<div class="account-list">
-  {% for acc in accounts %}
-  <div class="account-row">
-    <div style="min-width:0">
-      <span class="account-name">{{ acc.name }}</span>
-      <span class="account-detail">{{ acc.server }}</span>
-    </div>
-    <div style="display:flex;gap:.4rem">
-      <button type="button" class="btn btn-secondary btn-sm edit-btn"
-              data-idx="{{ loop.index0 }}"
-              data-name="{{ acc.name }}"
-              data-server="{{ acc.server }}"
-              data-user="{{ acc.username }}">Bewerken</button>
-      <form method="POST" action="/connect">
-        <input type="hidden" name="action" value="select">
-        <input type="hidden" name="account_idx" value="{{ loop.index0 }}">
-        <button type="submit" class="btn btn-secondary btn-sm">Verbinden</button>
-      </form>
-      <form method="POST" action="/connect"
-            onsubmit="return confirm('Account verwijderen?')">
-        <input type="hidden" name="action" value="delete">
-        <input type="hidden" name="account_idx" value="{{ loop.index0 }}">
-        <button type="submit" class="btn btn-danger btn-sm">Verwijder</button>
-      </form>
-    </div>
-  </div>
-  {% endfor %}
-</div>
-{% endif %}
-
-<!-- Edit overlay -->
-<div id="edit-overlay" style="display:none">
-  <div id="edit-box">
-    <div style="font-weight:600;margin-bottom:1rem;color:#e2e2e2">Account bewerken</div>
+  <div class="card">
     <form method="POST" action="/connect">
-      <input type="hidden" name="action" value="edit">
-      <input type="hidden" name="account_idx" id="edit-idx">
+      <input type="hidden" name="action" value="login">
+      {% if not show_manual %}
       <div class="form-group">
-        <label>Label</label>
-        <input type="text" name="account_name" id="edit-name">
+        <label for="m3u">M3U+ URL</label>
+        <input type="url" id="m3u" name="m3u_url" required autofocus
+               placeholder="http://provider.com/get.php?username=…&password=…&type=m3u_plus">
+        <p class="hint">Of <a href="/?manual=1&switch=1">vul server en login handmatig in</a>.</p>
+      </div>
+      {% else %}
+      <div class="form-group">
+        <label for="srv">Server URL</label>
+        <input type="text" id="srv" name="m3u_url" required autofocus placeholder="http://example.com:8080">
       </div>
       <div class="form-group">
-        <label>Server URL</label>
-        <input type="text" name="server" id="edit-server">
+        <label for="usr">Gebruikersnaam</label>
+        <input type="text" id="usr" name="username" required autocomplete="username">
       </div>
       <div class="form-group">
-        <label>Gebruikersnaam</label>
-        <input type="text" name="username" id="edit-user">
+        <label for="pwd">Wachtwoord</label>
+        <input type="password" id="pwd" name="password" autocomplete="current-password">
+        <p class="hint"><a href="/?switch=1">← M3U+ URL gebruiken</a></p>
       </div>
-      <div class="form-group">
-        <label>Wachtwoord <span style="color:#444;font-weight:400">(leeg = ongewijzigd)</span></label>
-        <input type="password" name="password" id="edit-pass" placeholder="••••••">
+      {% endif %}
+
+      <label class="check" style="margin-bottom:.8rem">
+        <input type="checkbox" name="save_account" id="save_cb" checked> Account onthouden
+      </label>
+      <div class="form-group" id="name-row">
+        <label for="lbl">Naam (optioneel)</label>
+        <input type="text" id="lbl" name="account_name" placeholder="Mijn IPTV">
       </div>
-      <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1.25rem">
-        <button type="button" class="btn btn-secondary btn-sm" onclick="closeEdit()">Annuleren</button>
-        <button type="submit" class="btn btn-primary btn-sm">Opslaan</button>
-      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%">Verbinden</button>
     </form>
   </div>
+
+  {% if accounts %}
+  <h2>Opgeslagen accounts</h2>
+  <div class="acct-list">
+    {% for acc in accounts %}
+    <div class="acct">
+      <div class="info">
+        <div class="n">{{ acc.name }}{% if acc.default %} <span class="badge">standaard</span>{% endif %}</div>
+        <div class="s">{{ acc.server }} · {{ acc.username }}</div>
+      </div>
+      <form method="POST" action="/connect">
+        <input type="hidden" name="action" value="select">
+        <input type="hidden" name="account_id" value="{{ acc.id }}">
+        <button class="btn btn-primary btn-sm">Verbinden</button>
+      </form>
+      <button type="button" class="btn btn-secondary btn-sm btn-icon edit-btn" title="Bewerken"
+              data-id="{{ acc.id }}" data-name="{{ acc.name }}" data-server="{{ acc.server }}" data-user="{{ acc.username }}">✎</button>
+      <form method="POST" action="/connect" onsubmit='return confirm({{ ("Account “" ~ acc.name ~ "” verwijderen?")|tojson }})'>
+        <input type="hidden" name="action" value="delete">
+        <input type="hidden" name="account_id" value="{{ acc.id }}">
+        <button class="btn btn-danger btn-sm btn-icon" title="Verwijderen">✕</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
 </div>
 
-<style>
-.account-detail{display:block;font-size:.72rem;color:#444;margin-top:.15rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#edit-overlay{position:fixed;inset:0;background:#000000cc;z-index:300;display:flex;align-items:center;justify-content:center}
-#edit-box{background:#141414;border:1px solid #242424;border-radius:10px;padding:1.5rem;min-width:320px;max-width:460px;width:90%}
-</style>
-
+<dialog id="edit-dialog">
+  <form method="POST" action="/connect">
+    <h3>Account bewerken</h3>
+    <input type="hidden" name="action" value="edit">
+    <input type="hidden" name="account_id" id="edit-id">
+    <div class="form-group"><label>Naam</label><input type="text" name="account_name" id="edit-name"></div>
+    <div class="form-group"><label>Server URL</label><input type="text" name="server" id="edit-server"></div>
+    <div class="form-group"><label>Gebruikersnaam</label><input type="text" name="username" id="edit-user"></div>
+    <div class="form-group"><label>Wachtwoord <span class="dim">(leeg = ongewijzigd)</span></label>
+      <input type="password" name="password" placeholder="••••••" autocomplete="new-password"></div>
+    <div class="actions">
+      <button type="button" class="btn btn-secondary btn-sm" onclick="this.closest('dialog').close()">Annuleren</button>
+      <button type="submit" class="btn btn-primary btn-sm">Opslaan</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}
+{% block scripts %}
 <script>
-document.getElementById('save_cb').addEventListener('change', function(){
-  document.getElementById('name-row').style.display = this.checked ? 'block' : 'none';
-});
-
-function closeEdit() {
-  document.getElementById('edit-overlay').style.display = 'none';
-}
-
-document.querySelectorAll('.edit-btn').forEach(btn => {
-  btn.addEventListener('click', function() {
-    document.getElementById('edit-idx').value    = this.dataset.idx;
-    document.getElementById('edit-name').value   = this.dataset.name;
-    document.getElementById('edit-server').value = this.dataset.server;
-    document.getElementById('edit-user').value   = this.dataset.user;
-    document.getElementById('edit-pass').value   = '';
-    document.getElementById('edit-overlay').style.display = 'flex';
-    document.getElementById('edit-name').focus();
-  });
-});
-
-document.getElementById('edit-overlay').addEventListener('click', function(e) {
-  if (e.target === this) closeEdit();
-});
-
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeEdit(); });
+const cb = document.getElementById('save_cb');
+cb.addEventListener('change', () => document.getElementById('name-row').hidden = !cb.checked);
+document.querySelectorAll('.edit-btn').forEach(b => b.addEventListener('click', () => {
+  for (const k of ['id', 'name', 'server', 'user']) document.getElementById('edit-' + k).value = b.dataset[k];
+  document.getElementById('edit-dialog').showModal();
+}));
 </script>
 {% endblock %}

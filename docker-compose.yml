@@ -1,9 +1,13 @@
 services:
   iptv-downloader:
     build: .
+    image: ghcr.io/richrdj/iptv-downloader:latest
     container_name: iptv-downloader
     ports:
       - "2233:2233"
+    environment:
+      TZ: Europe/Amsterdam
+      # APP_PASSWORD: kies-een-wachtwoord   # aanbevolen als de app buiten je LAN bereikbaar is
     volumes:
       - ./config:/config
       - ./downloads:/downloads

@@ -1,43 +1,51 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import poster %}
+{% set is_movie = kind == 'movie' %}
+{% set fav_set = fav_movie_ids if is_movie else fav_ids %}
+{% block title %}{{ 'Films' if is_movie else 'Series' }} — IPTV Downloader{% endblock %}
 {% block content %}
 
 <div class="page-header">
-  <h1 style="margin:0">Series bladeren</h1>
-  <div style="display:flex;align-items:center;gap:.75rem;margin-left:auto">
-    {% if cache_age %}
-    <span style="font-size:.75rem;color:#444">Bijgewerkt: {{ cache_age }}</span>
-    {% endif %}
-    <form method="POST" action="/sync">
-      <button type="submit" class="btn btn-secondary btn-sm" title="Haal nieuwe data op van de server">
-        ↻ Sync
-      </button>
+  <h1>{{ 'Films' if is_movie else 'Series' }}</h1>
+  {% if total %}<span class="badge">{{ '{:,}'.format(total).replace(',', '.') }}</span>{% endif %}
+  <div class="right">
+    {% if cache_age %}<span class="small dim" title="Laatste synchronisatie met de provider">Bijgewerkt {{ cache_age }}</span>{% endif %}
+    <form method="POST" action="/sync" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Bezig…'">
+      <button class="btn btn-secondary btn-sm" title="Nieuwe content ophalen bij de provider">↻ Sync</button>
     </form>
   </div>
 </div>
 
-{% if error %}<div class="error">{{ error }}</div>{% endif %}
+{% if error %}<div class="alert error">{{ error }}</div>{% endif %}
 
-<form class="search-bar" action="/search" method="GET">
-  <input type="text" name="q" placeholder="Zoek op naam…" autofocus>
-  <button type="submit" class="btn btn-primary">Zoeken</button>
-</form>
+{% if recent %}
+<h2 style="margin-top:0">Recent toegevoegd</h2>
+<div class="poster-row">
+  {% for item in recent %}{{ poster(kind, item, fav_set, history) }}{% endfor %}
+</div>
+{% endif %}
 
 <h2>Categorieën</h2>
-
 {% if categories %}
-<div class="cat-grid">
+<input type="search" class="cat-filter" id="cat-filter" placeholder="Filter categorieën…" autocomplete="off">
+<div class="cat-grid" id="cat-grid">
   {% for cat in categories %}
-  <a class="cat-item"
-     href="/category/{{ cat.category_id }}?name={{ cat.category_name | urlencode }}">
-    {{ cat.category_name }}
+  <a class="cat-item" data-name="{{ cat.category_name|lower }}"
+     href="{{ url_for('movies_category' if is_movie else 'category', cat_id=cat.category_id) }}">
+    <span>{{ cat.category_name }}</span><span class="count">{{ cat.count or '' }}</span>
   </a>
   {% endfor %}
 </div>
 {% else %}
-<div class="empty">
-  <div class="icon">📭</div>
-  <p>Geen categorieën gevonden.</p>
-</div>
+<div class="empty"><div class="icon">📭</div><p>Geen categorieën gevonden.</p></div>
 {% endif %}
-
+{% endblock %}
+{% block scripts %}
+<script>
+const cf = document.getElementById('cat-filter');
+cf && cf.addEventListener('input', () => {
+  const q = cf.value.toLowerCase();
+  document.querySelectorAll('#cat-grid .cat-item').forEach(a => a.hidden = !a.dataset.name.includes(q));
+});
+</script>
 {% endblock %}

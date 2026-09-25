@@ -1,845 +1,793 @@
 #!/usr/bin/env python3
-"""IPTV Series Downloader — Flask web UI  v2"""
-
+"""IPTV Downloader — Flask web UI."""
+import hmac
+import logging
 import os
 import re
-import json
-import hashlib
 import threading
 import time
-from datetime import datetime, timedelta
+import uuid
+from collections import Counter
+from datetime import timedelta
+from functools import wraps
 from pathlib import Path
 from urllib.parse import quote
 
-import requests as http
-from flask import (Flask, render_template, request, redirect,
-                   url_for, session, Response, stream_with_context, jsonify)
+import requests
+from flask import (Flask, Response, jsonify, redirect, render_template,
+                   request, session, stream_with_context, url_for)
 
-VERSION = "2.2.0"
+from iptv import VERSION
+from iptv import storage as db
+from iptv.downloads import DownloadManager
+from iptv.xtream import USER_AGENT, XtreamClient, XtreamError, normalize_server, parse_m3u_url
+
+logging.basicConfig(level=os.environ.get('LOG_LEVEL', 'INFO'),
+                    format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+log = logging.getLogger('iptv')
+
+APP_PASSWORD = os.environ.get('APP_PASSWORD', '')
+VERIFY_SSL = os.environ.get('VERIFY_SSL', 'false').lower() in ('1', 'true', 'yes')
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
+app.secret_key = db.secret_key()
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+)
 
-@app.context_processor
-def inject_globals():
-    fav_ids = set()
-    fav_movie_ids = set()
-    if 'server' in session:
-        for f in load_favorites():
-            if f.get('type') == 'movie':
-                fav_movie_ids.add(f['movie_id'])
-            else:
-                fav_ids.add(f.get('series_id'))
-    dl_settings = load_settings() if 'server' in session else {}
-    return {'version': VERSION, 'fav_ids': fav_ids, 'fav_movie_ids': fav_movie_ids,
-            'dl_mode': dl_settings.get('download_mode', 'browser'),
-            'dl_path': dl_settings.get('download_path', '')}
-
-CONFIG_DIR   = Path(os.environ.get('CONFIG_DIR',   '/config'))
-DOWNLOAD_DIR = Path(os.environ.get('DOWNLOAD_DIR', '/downloads'))
-CONFIG_FILE  = CONFIG_DIR / 'accounts.json'
-
-CONNECTION_TIMEOUT = 10
-READ_TIMEOUT       = 30
+# Accounts die niet zijn opgeslagen leven alleen in het geheugen (nooit in de cookie).
+_temp_accounts: dict = {}
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Naamgeving
 # ---------------------------------------------------------------------------
+
+_ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
 
 def sanitize(name: str) -> str:
-    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', name)
-    name = re.sub(r'[\s\-]+', '.', name).strip('.') or 'Unknown'
-    return name
+    """'Breaking Bad - Pilot' -> 'Breaking.Bad.Pilot'."""
+    name = _ILLEGAL.sub('', name or '')
+    name = re.sub(r'[()\[\]{}!,;]', '', name)
+    name = re.sub(r'[\s\-_]+', '.', name)
+    name = re.sub(r'\.{2,}', '.', name).strip('.')
+    return name or 'Unknown'
 
 
-def episode_filename(show: str, season: int, ep: int, title: str, ext: str) -> str:
-    title_part = f'.{sanitize(title)}' if title and title.strip() else ''
+def sanitize_folder(name: str) -> str:
+    name = _ILLEGAL.sub('', name or '')
+    name = re.sub(r'\s+', ' ', name).strip(' .')
+    return name[:150] or 'Unknown'
+
+
+def clean_filename(fn: str, fallback: str) -> str:
+    """Door de gebruiker aangepaste naam: geen paden, geen verborgen bestanden."""
+    fn = _ILLEGAL.sub('', (fn or '')).replace('..', '.').strip(' .')
+    return fn[:220] or fallback
+
+
+def safe_int(v, default=0):
+    try:
+        return int(float(v))
+    except Exception:
+        return default
+
+
+def movie_year(m: dict) -> str:
+    for key in ('year', 'releasedate', 'release_date', 'releaseDate', 'name'):
+        y = re.search(r'(19|20)\d{2}', str(m.get(key) or ''))
+        if y:
+            return y.group(0)
+    return ''
+
+
+def episode_filename(show, season, ep, title, ext):
+    title_part = ''
+    if title and title.strip():
+        t = sanitize(title)
+        # Veel providers zetten "Show - S01E01 - Titel" in de titel; niet dubbel opnemen.
+        t = re.sub(r'^.*?S\d{1,2}E\d{1,3}', '', t, flags=re.I).strip('.')
+        if t and t.lower() != sanitize(show).lower():
+            title_part = f'.{t}'
     return f'{sanitize(show)}.S{season:02d}E{ep:02d}{title_part}.{ext}'
 
 
-def movie_filename(title: str, year: str, ext: str) -> str:
-    year_part = f'.{year}' if year else ''
-    return f'{sanitize(title)}{year_part}.{ext}'
+_TRAILING_YEAR = re.compile(r'\s*[\(\[]?((?:19|20)\d{2})[\)\]]?\s*$')
 
 
-def parse_m3u_url(url: str):
-    m = re.match(r'(https?://[^/]+)/get\.php\?username=([^&]+)&password=([^&]+)', url)
-    return (m.group(1), m.group(2), m.group(3)) if m else None
+def strip_year(name):
+    return _TRAILING_YEAR.sub('', name or '').strip() or name
 
 
-# ---------------------------------------------------------------------------
-# Xtream client
-# ---------------------------------------------------------------------------
-
-class XtreamClient:
-    def __init__(self, server, username, password):
-        self.server   = server.rstrip('/')
-        self.username = username
-        self.password = password
-        self._base    = {'username': username, 'password': password}
-
-    def _get(self, action, extra=None):
-        params = {**self._base}
-        if action:
-            params['action'] = action
-        if extra:
-            params.update(extra)
-        r = http.get(
-            f'{self.server}/player_api.php', params=params,
-            timeout=(CONNECTION_TIMEOUT, READ_TIMEOUT),
-            headers={'User-Agent': 'IPTV-Downloader/1.0'},
-            verify=False
-        )
-        r.raise_for_status()
-        return r.json()
-
-    def authenticate(self):
-        try:
-            return self._get('').get('user_info', {}).get('auth', 0) == 1
-        except Exception:
-            return False
-
-    # Series
-    def categories(self):
-        return self._get('get_series_categories') or []
-
-    def series(self, cat_id=None):
-        extra = {'category_id': cat_id} if cat_id else None
-        return self._get('get_series', extra) or []
-
-    def series_info(self, series_id):
-        return self._get('get_series_info', {'series_id': series_id}) or {}
-
-    def stream_url(self, ep_id, ext):
-        return f'{self.server}/series/{self.username}/{self.password}/{ep_id}.{ext}'
-
-    # Movies (VOD)
-    def movie_categories(self):
-        return self._get('get_vod_categories') or []
-
-    def movies(self, cat_id=None):
-        extra = {'category_id': cat_id} if cat_id else None
-        return self._get('get_vod_streams', extra) or []
-
-    def movie_url(self, movie_id, ext):
-        return f'{self.server}/movie/{self.username}/{self.password}/{movie_id}.{ext}'
+def movie_filename(name, year, ext):
+    m = _TRAILING_YEAR.search(name or '')
+    year = year or (m.group(1) if m else '')
+    base = sanitize(re.sub(r'[()\[\]]', '', strip_year(name)))
+    if year and year not in base:
+        base += f'.{year}'
+    return f'{base}.{ext}'
 
 
-def get_client():
-    if 'server' not in session:
-        return None
-    return XtreamClient(session['server'], session['username'], session['password'])
-
-
-# ---------------------------------------------------------------------------
-# Account storage
-# ---------------------------------------------------------------------------
-
-def load_accounts():
-    if CONFIG_FILE.exists():
-        with open(CONFIG_FILE) as f:
-            return json.load(f)
-    return []
-
-
-def set_default_account(idx):
-    accounts = load_accounts()
-    for i, a in enumerate(accounts):
-        a['default'] = (i == idx)
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    with open(CONFIG_FILE, 'w') as f:
-        json.dump(accounts, f, indent=2)
-
-
-def save_account(acc):
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    accounts = load_accounts()
-    for a in accounts:
-        a['default'] = False
-    acc['default'] = True
-    accounts.append(acc)
-    with open(CONFIG_FILE, 'w') as f:
-        json.dump(accounts, f, indent=2)
-
-
-def update_account(idx, data):
-    accounts = load_accounts()
-    if 0 <= idx < len(accounts):
-        accounts[idx].update(data)
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(accounts, f, indent=2)
-
-
-def delete_account(idx):
-    accounts = load_accounts()
-    if 0 <= idx < len(accounts):
-        accounts.pop(idx)
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(accounts, f, indent=2)
-
-
-# ---------------------------------------------------------------------------
-# Cache
-# ---------------------------------------------------------------------------
-
-def _cache_key_for(server: str, username: str) -> str:
-    return hashlib.md5(f"{server}{username}".encode()).hexdigest()[:12]
-
-
-def _cache_key() -> str:
-    return _cache_key_for(session.get('server', ''), session.get('username', ''))
-
-
-def _cache_file() -> Path:
-    return CONFIG_DIR / f"cache_{_cache_key()}.json"
-
-
-def load_cache() -> dict:
-    f = _cache_file()
-    if f.exists():
-        with open(f) as fh:
-            return json.load(fh)
-    return {}
-
-
-def save_cache(data: dict):
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    data['fetched_at'] = datetime.utcnow().isoformat()
-    with open(_cache_file(), 'w') as fh:
-        json.dump(data, fh)
-
-
-def clear_cache():
-    f = _cache_file()
-    if f.exists():
-        f.unlink()
-
-
-def cache_age(cache: dict) -> str:
-    ts = cache.get('fetched_at')
-    if not ts:
-        return ''
+def format_rating(r):
     try:
-        delta = datetime.utcnow() - datetime.fromisoformat(ts)
-        h, m = divmod(int(delta.total_seconds()) // 60, 60)
-        return f'{h}u {m}m geleden' if h else f'{m}m geleden'
-    except Exception:
+        v = float(r)
+    except Exception:   # ook jinja Undefined
         return ''
+    return f'{v:.1f}'.rstrip('0').rstrip('.') if v > 0 else ''
+
+
+def format_duration(d):
+    """'00:42:10' -> '42 min', '01:05:00' -> '1u 5m'."""
+    parts = [safe_int(x) for x in str(d or '').split(':')]
+    if len(parts) != 3 or not any(parts):
+        return ''
+    h, m, _ = parts
+    return f'{h}u {m}m' if h else f'{m} min'
+
+
+app.jinja_env.globals.update(movie_filename=movie_filename, movie_year=movie_year)
+app.jinja_env.filters['rating'] = format_rating
+app.jinja_env.filters['dur'] = format_duration
 
 
 # ---------------------------------------------------------------------------
-# Favorites
+# Account / sessie
 # ---------------------------------------------------------------------------
 
-def _favs_file() -> Path:
-    return CONFIG_DIR / f"favorites_{_cache_key()}.json"
+def find_account(aid):
+    return (db.get_account(aid) or _temp_accounts.get(aid)) if aid else None
 
 
-def load_favorites() -> list:
-    f = _favs_file()
-    return json.load(open(f)) if f.exists() else []
+def current_account():
+    return find_account(session.get('account_id'))
 
 
-def toggle_favorite(item_id: int, name: str, cover: str, fav_type: str = 'series') -> bool:
-    favs = load_favorites()
-    id_key = 'movie_id' if fav_type == 'movie' else 'series_id'
-    if any(f.get(id_key) == item_id for f in favs):
-        favs = [f for f in favs if f.get(id_key) != item_id]
-        is_fav = False
-    else:
-        favs.append({id_key: item_id, 'name': name, 'cover': cover or '', 'type': fav_type})
-        is_fav = True
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    with open(_favs_file(), 'w') as fh:
-        json.dump(favs, fh, indent=2)
-    return is_fav
+def client_for(acc) -> XtreamClient:
+    return XtreamClient(acc['server'], acc['username'], acc['password'], VERIFY_SSL)
 
 
-# ---------------------------------------------------------------------------
-# Download history
-# ---------------------------------------------------------------------------
-
-def _hist_file() -> Path:
-    return CONFIG_DIR / f"history_{_cache_key()}.json"
-
-
-def load_history() -> set:
-    f = _hist_file()
-    return set(json.load(open(f))) if f.exists() else set()
-
-
-def mark_downloaded(ep_ids: list):
-    hist = load_history()
-    hist.update(str(i) for i in ep_ids)
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    with open(_hist_file(), 'w') as fh:
-        json.dump(list(hist), fh)
+def login_required(view):
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        acc = current_account()
+        if not acc:
+            if request.path.startswith('/api/') or request.is_json:
+                return jsonify(error='niet verbonden'), 401
+            return redirect(url_for('index'))
+        return view(acc, *args, **kwargs)
+    return wrapper
 
 
-# ---------------------------------------------------------------------------
-# Settings
-# ---------------------------------------------------------------------------
-
-def _settings_file() -> Path:
-    return CONFIG_DIR / 'settings.json'
-
-
-def load_settings() -> dict:
-    f = _settings_file()
-    defaults = {'sync_interval': 0, 'download_mode': 'browser', 'download_path': '/downloads'}
-    if f.exists():
-        stored = json.load(open(f))
-        defaults.update(stored)
-    return defaults
+@app.before_request
+def require_app_password():
+    if not APP_PASSWORD or request.endpoint in ('auth', 'static', 'healthz'):
+        return None
+    if session.get('authed'):
+        return None
+    if request.path.startswith('/api/'):
+        return jsonify(error='niet ingelogd'), 401
+    return redirect(url_for('auth', next=request.full_path))
 
 
-def save_settings(data: dict):
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    with open(_settings_file(), 'w') as fh:
-        json.dump(data, fh, indent=2)
+@app.route('/auth', methods=['GET', 'POST'])
+def auth():
+    error = None
+    if request.method == 'POST':
+        if hmac.compare_digest(request.form.get('password', '').encode(), APP_PASSWORD.encode()):
+            session.permanent = True
+            session['authed'] = True
+            nxt = request.args.get('next', '/')
+            return redirect(nxt if nxt.startswith('/') and not nxt.startswith('//') else '/')
+        time.sleep(1)  # vertraag brute-force pogingen
+        error = 'Onjuist wachtwoord.'
+    return render_template('auth.html', error=error)
+
+
+@app.context_processor
+def inject_globals():
+    ctx = {'version': VERSION, 'fav_ids': set(), 'fav_movie_ids': set(),
+           'account': None, 'app_password': bool(APP_PASSWORD),
+           'dl_mode': db.load_settings()['download_mode']}
+    acc = current_account()
+    if acc:
+        ctx['account'] = acc
+        for f in db.load_favorites(db.account_key(acc)):
+            if f.get('type') == 'movie':
+                ctx['fav_movie_ids'].add(f.get('movie_id'))
+            else:
+                ctx['fav_ids'].add(f.get('series_id'))
+    return ctx
 
 
 # ---------------------------------------------------------------------------
-# Background auto-sync
+# Catalogus
 # ---------------------------------------------------------------------------
+
+_sync_locks: dict = {}
+
+
+def sync_catalog(acc) -> dict:
+    """Haal alles in één keer op. Categoriepagina's filteren daarna lokaal (veel minder API-calls)."""
+    key = db.account_key(acc)
+    lock = _sync_locks.setdefault(key, threading.Lock())
+    with lock:
+        c = client_for(acc)
+        data = {
+            'series_cats': c.series_categories(),
+            'series': c.series(),
+            'movie_cats': c.movie_categories(),
+            'movies': c.movies(),
+        }
+        try:
+            data['account_info'] = c.account_info()
+        except XtreamError:
+            data['account_info'] = {}
+        db.put_cache(key, data)
+        log.info('Sync %s: %d series, %d films', acc.get('name'), len(data['series']), len(data['movies']))
+        return data
+
+
+def catalog(acc) -> dict:
+    cache = db.get_cache(db.account_key(acc))
+    if 'series' not in cache or 'movies' not in cache:   # geen cache, of nog een v2-cache
+        cache = sync_catalog(acc)
+    return cache
+
+
+def in_category(item, cat_id):
+    if str(item.get('category_id')) == str(cat_id):
+        return True
+    return any(str(i) == str(cat_id) for i in (item.get('category_ids') or []))
+
+
+def category_counts(items):
+    counts = Counter()
+    for it in items:
+        ids = {str(it.get('category_id'))} | {str(i) for i in (it.get('category_ids') or [])}
+        counts.update(ids)
+    return counts
+
+
+def recent(items, field, n=14):
+    return sorted(items, key=lambda i: safe_int(i.get(field)), reverse=True)[:n]
+
+
+def human_age(seconds):
+    if seconds is None:
+        return ''
+    m = int(seconds // 60)
+    if m < 1:
+        return 'zojuist'
+    if m < 60:
+        return f'{m} min geleden'
+    h = m // 60
+    return f'{h} uur geleden' if h < 48 else f'{h // 24} dagen geleden'
+
+
+def human_duration(seconds):
+    m = int(seconds // 60)
+    if m < 60:
+        return f'{max(m, 1)} min'
+    return f'{m // 60} uur {m % 60} min' if m % 60 else f'{m // 60} uur'
+
 
 def _auto_sync_worker():
-    """Daemon thread: syncs the default account's cache on the configured interval."""
+    time.sleep(20)
     while True:
-        time.sleep(60)
         try:
-            interval_h = load_settings().get('sync_interval', 0)
-            if not interval_h:
-                continue
-            accounts = load_accounts()
-            acc = next((a for a in accounts if a.get('default')), None) \
-                  or (accounts[0] if accounts else None)
-            if not acc:
-                continue
-            key      = _cache_key_for(acc['server'], acc['username'])
-            cache_f  = CONFIG_DIR / f"cache_{key}.json"
-            if cache_f.exists():
-                with open(cache_f) as fh:
-                    cache = json.load(fh)
-                ts = cache.get('fetched_at')
-                if ts:
-                    delta = datetime.utcnow() - datetime.fromisoformat(ts)
-                    if delta.total_seconds() < interval_h * 3600:
-                        continue
-            client = XtreamClient(acc['server'], acc['username'], acc['password'])
-            new_cache = {
-                'categories':    client.categories(),
-                'series_all':    client.series(),
-                'series_by_cat': {},
-                'movie_cats':    client.movie_categories(),
-                'movies_all':    client.movies(),
-                'movies_by_cat': {},
-                'fetched_at':    datetime.utcnow().isoformat(),
-            }
-            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-            with open(cache_f, 'w') as fh:
-                json.dump(new_cache, fh)
-        except Exception:
-            pass
-
-
-_sync_thread = threading.Thread(target=_auto_sync_worker, daemon=True, name='auto-sync')
-_sync_thread.start()
+            interval = db.load_settings()['sync_interval']
+            acc = db.default_account()
+            if interval and acc:
+                age = db.cache_age_seconds(db.get_cache(db.account_key(acc)))
+                if age is None or age >= interval * 3600:
+                    sync_catalog(acc)
+        except Exception as e:
+            log.warning('Auto-sync mislukt: %s', e)
+        time.sleep(60)
 
 
 # ---------------------------------------------------------------------------
-# Routes — auth
+# Downloads
 # ---------------------------------------------------------------------------
+
+def download_root() -> Path:
+    sub = db.load_settings().get('download_subdir', '').strip().strip('/')
+    root = db.DOWNLOAD_DIR.resolve()
+    target = (root / sub).resolve() if sub else root
+    if target != root and root not in target.parents:
+        raise ValueError('Downloadmap moet binnen DOWNLOAD_DIR liggen')
+    return target
+
+
+def build_dest(kind, filename, show='', season=0, title='', year=''):
+    root = download_root()
+    if db.load_settings()['organize'] == 'folders':
+        if kind == 'episode':
+            folder = root / 'Series' / sanitize_folder(show) / f'Season {season:02d}'
+        else:
+            title = strip_year(title)
+            folder = root / 'Films' / sanitize_folder(f'{title} ({year})' if year else title)
+    else:
+        folder = root
+    dest = (folder / filename).resolve()
+    if root not in dest.parents:
+        raise ValueError('Ongeldige bestandsnaam')
+    return dest
+
+
+def _resolve_url(job):
+    acc = find_account(job['account_id'])
+    if not acc:
+        raise IOError('Account bestaat niet meer')
+    c = client_for(acc)
+    url = c.movie_url(job['item_id'], job['ext']) if job['kind'] == 'movie' \
+        else c.episode_url(job['item_id'], job['ext'])
+    return url, VERIFY_SSL
+
+
+def _on_complete(job):
+    db.mark_downloaded(job['account_key'], [job['history_id']])
+
+
+downloads = DownloadManager(
+    resolve_url=_resolve_url,
+    get_limit=lambda: db.load_settings()['max_concurrent'],
+    on_complete=_on_complete,
+)
+threading.Thread(target=_auto_sync_worker, daemon=True, name='auto-sync').start()
+
+
+# ---------------------------------------------------------------------------
+# Routes — verbinden
+# ---------------------------------------------------------------------------
+
+def login_page(error=None, manual=None):
+    manual = request.args.get('manual') == '1' if manual is None else manual
+    return render_template('login.html', accounts=db.load_accounts(),
+                           show_manual=manual, error=error)
+
+
+def urlhost(server):
+    return re.sub(r'^https?://', '', server)
+
 
 @app.route('/')
 def index():
-    if 'server' not in session:
-        accounts = load_accounts()
-        default = next((a for a in accounts if a.get('default')), None) or (accounts[0] if accounts else None)
-        if default:
-            client = XtreamClient(default['server'], default['username'], default['password'])
-            if client.authenticate():
-                session.update(server=default['server'], username=default['username'],
-                               password=default['password'], account_name=default['name'])
-                return redirect(url_for('browse'))
-
-    return render_template('login.html',
-                           accounts=load_accounts(),
-                           show_manual=request.args.get('manual') == '1',
-                           error=None)
+    if current_account():
+        return redirect(url_for('browse'))
+    acc = db.default_account()
+    if acc and request.args.get('switch') != '1':
+        # Niet elke keer opnieuw authenticeren: een verse cache is bewijs genoeg.
+        age = db.cache_age_seconds(db.get_cache(db.account_key(acc)))
+        if (age is not None and age < 86400) or client_for(acc).authenticate():
+            session.permanent = True
+            session['account_id'] = acc['id']
+            return redirect(url_for('browse'))
+    return login_page()
 
 
 @app.route('/connect', methods=['POST'])
 def connect():
-    action = request.form.get('action')
+    action = request.form.get('action', 'login')
+    aid = request.form.get('account_id', '')
 
     if action == 'select':
-        idx = int(request.form.get('account_idx', 0))
-        accs = load_accounts()
-        if 0 <= idx < len(accs):
-            a = accs[idx]
-            session.update(server=a['server'], username=a['username'],
-                           password=a['password'], account_name=a['name'])
-            set_default_account(idx)
+        acc = db.get_account(aid)
+        if acc:
+            if not client_for(acc).authenticate():
+                return login_page(f'Kan niet verbinden met “{acc["name"]}”. Controleer de gegevens.')
+            session.permanent = True
+            session['account_id'] = acc['id']
+            db.set_default_account(acc['id'])
         return redirect(url_for('browse'))
 
     if action == 'delete':
-        delete_account(int(request.form.get('account_idx', 0)))
-        return redirect(url_for('index'))
+        db.delete_account(aid)
+        return redirect(url_for('index', switch=1))
 
     if action == 'edit':
-        idx    = int(request.form.get('account_idx', 0))
-        name   = request.form.get('account_name', '').strip()
-        server = request.form.get('server', '').strip()
-        user   = request.form.get('username', '').strip()
-        pwd    = request.form.get('password', '').strip()
-        if name or server or user:
-            data = {}
-            if name:   data['name']     = name
-            if server: data['server']   = server
-            if user:   data['username'] = user
-            if pwd:    data['password'] = pwd
-            update_account(idx, data)
-        return redirect(url_for('index'))
+        db.update_account(aid, {
+            'name': request.form.get('account_name', '').strip(),
+            'server': normalize_server(request.form.get('server', '')),
+            'username': request.form.get('username', '').strip(),
+            'password': request.form.get('password', '').strip(),
+        })
+        return redirect(url_for('index', switch=1))
 
-    raw    = request.form.get('m3u_url', '').strip()
-    manual = request.form.get('manual') == '1'
-
-    if manual or not raw.startswith('http') or 'get.php' not in raw:
-        server   = raw
+    raw = request.form.get('m3u_url', '').strip()
+    parsed = parse_m3u_url(raw) if 'get.php' in raw else None
+    if parsed:
+        server, username, password = parsed
+    else:
+        server = normalize_server(raw)
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '').strip()
         if not server or not username:
-            return render_template('login.html', accounts=load_accounts(),
-                                   show_manual=True,
-                                   error='Server URL en gebruikersnaam zijn verplicht.')
-    else:
-        parsed = parse_m3u_url(raw)
-        if not parsed:
-            return render_template('login.html', accounts=load_accounts(),
-                                   show_manual=False,
-                                   error='Ongeldige M3U+ URL.')
-        server, username, password = parsed
+            return login_page('Vul een geldige M3U+ URL in, of server + gebruikersnaam.', manual=True)
 
-    client = XtreamClient(server, username, password)
-    if not client.authenticate():
-        return render_template('login.html', accounts=load_accounts(),
-                               show_manual=manual or 'get.php' not in raw,
-                               error='Authenticatie mislukt — controleer je gegevens.')
-
-    session.update(server=server, username=username, password=password,
-                   account_name=f'{username}@{server}')
+    acc = {'name': request.form.get('account_name', '').strip() or f'{username}@{urlhost(server)}',
+           'server': server, 'username': username, 'password': password}
+    if not client_for(acc).authenticate():
+        return login_page('Authenticatie mislukt — controleer je gegevens.', manual=not parsed)
 
     if request.form.get('save_account'):
-        name = request.form.get('account_name') or session['account_name']
-        save_account({'name': name, 'server': server,
-                      'username': username, 'password': password})
-
+        acc = db.add_account(acc)
+    else:
+        acc['id'] = 'tmp-' + uuid.uuid4().hex[:10]
+        _temp_accounts[acc['id']] = acc
+    session.permanent = True
+    session['account_id'] = acc['id']
     return redirect(url_for('browse'))
 
 
 @app.route('/logout')
 def logout():
-    session.clear()
-    return redirect(url_for('index'))
+    session.pop('account_id', None)
+    return redirect(url_for('index', switch=1))
 
 
 # ---------------------------------------------------------------------------
-# Routes — series browse
+# Routes — series
 # ---------------------------------------------------------------------------
+
+def _browse(acc, kind):
+    error = None
+    try:
+        cat = catalog(acc)
+    except XtreamError as e:
+        cat, error = {}, str(e)
+    items = cat.get('series' if kind == 'series' else 'movies', [])
+    counts = category_counts(items)
+    cats = [dict(c, count=counts.get(str(c.get('category_id')), 0))
+            for c in cat.get('series_cats' if kind == 'series' else 'movie_cats', [])]
+    return render_template('browse.html', kind=kind, categories=cats,
+                           recent=recent(items, 'last_modified' if kind == 'series' else 'added'),
+                           total=len(items), cache_age=human_age(db.cache_age_seconds(cat)),
+                           history=db.load_history(db.account_key(acc)), error=error)
+
 
 @app.route('/browse')
-def browse():
-    client = get_client()
-    if not client:
-        return redirect(url_for('index'))
-    cache = load_cache()
-    if 'categories' in cache:
-        cats, error = cache['categories'], None
-    else:
-        try:
-            cats = client.categories()
-            cache['categories'] = cats
-            save_cache(cache)
-            error = None
-        except Exception as e:
-            cats, error = [], str(e)
-    return render_template('browse.html', categories=cats,
-                           cache_age=cache_age(load_cache()), error=error)
+@login_required
+def browse(acc):
+    return _browse(acc, 'series')
 
 
 @app.route('/category/<cat_id>')
-def category(cat_id):
-    client = get_client()
-    if not client:
-        return redirect(url_for('index'))
-    cache    = load_cache()
-    cat_name = request.args.get('name', 'Categorie')
-    cached   = cache.get('series_by_cat', {}).get(cat_id)
-    if cached is not None:
-        return render_template('series_list.html', series_list=cached, title=cat_name, error=None)
-    try:
-        series_list = client.series(cat_id)
-        cache.setdefault('series_by_cat', {})[cat_id] = series_list
-        save_cache(cache)
-        error = None
-    except Exception as e:
-        series_list, error = [], str(e)
-    return render_template('series_list.html', series_list=series_list, title=cat_name, error=error)
-
-
-@app.route('/search')
-def search():
-    client = get_client()
-    if not client:
-        return redirect(url_for('index'))
-    q = request.args.get('q', '').strip().lower()
-    if not q:
-        return redirect(url_for('browse'))
-    cache = load_cache()
-    if 'series_all' not in cache:
-        try:
-            cache['series_all'] = client.series()
-            save_cache(cache)
-        except Exception as e:
-            return render_template('series_list.html', series_list=[], title=f'Zoeken: {q}', error=str(e))
-    results = [s for s in cache['series_all'] if q in s.get('name', '').lower()]
-    return render_template('series_list.html', series_list=results, title=f'Zoeken: {q}', error=None)
-
-
-@app.route('/sync', methods=['POST'])
-def sync():
-    client = get_client()
-    if not client:
-        return redirect(url_for('index'))
-    clear_cache()
-    try:
-        save_cache({
-            'categories':    client.categories(),
-            'series_all':    client.series(),
-            'series_by_cat': {},
-            'movie_cats':    client.movie_categories(),
-            'movies_all':    client.movies(),
-            'movies_by_cat': {},
-        })
-    except Exception:
-        pass
-    return redirect(url_for('browse'))
+@login_required
+def category(acc, cat_id):
+    cat = catalog(acc)
+    name = next((c.get('category_name') for c in cat.get('series_cats', [])
+                 if str(c.get('category_id')) == cat_id), 'Categorie')
+    items = [s for s in cat.get('series', []) if in_category(s, cat_id)]
+    return render_template('grid.html', kind='series', items=items, title=name,
+                           back=url_for('browse'), history=set())
 
 
 @app.route('/series/<int:series_id>')
-def series(series_id):
-    client = get_client()
-    if not client:
-        return redirect(url_for('index'))
+@login_required
+def series(acc, series_id):
+    error, meta, seasons_data, show_name = None, {}, [], 'Onbekend'
     try:
-        info      = client.series_info(series_id)
-        meta      = info.get('info', {})
-        show_name = meta.get('name', 'Unknown')
-        eps_by_s  = info.get('episodes', {})
-        seasons   = sorted(eps_by_s.keys(), key=lambda x: int(x))
-        history   = load_history()
-
-        seasons_data = []
-        for s in seasons:
+        info = client_for(acc).series_info(series_id)
+        meta = info['info']
+        if not meta.get('name'):   # sommige providers laten info leeg -> uit catalogus halen
+            meta = {**next((s for s in catalog(acc).get('series', [])
+                            if safe_int(s.get('series_id')) == series_id), {}), **meta}
+        show_name = meta.get('name') or 'Onbekend'
+        history = db.load_history(db.account_key(acc))
+        for s in sorted(info['episodes'], key=safe_int):
             eps = []
-            for ep in eps_by_s[s]:
-                ep = dict(ep)
-                ep['_filename'] = episode_filename(
-                    show_name,
-                    int(ep.get('season', 1)),
-                    int(ep.get('episode_num', 1)),
-                    ep.get('title', '') or '',
-                    ep.get('container_extension', 'mkv')
-                )
-                ep['_downloaded'] = str(ep.get('id')) in history
-                eps.append(ep)
-            seasons_data.append((s, eps))
-        error = None
-    except Exception as e:
-        meta, show_name, seasons_data, error = {}, 'Fout', [], str(e)
+            for ep in info['episodes'][s] or []:
+                season = safe_int(ep.get('season'), safe_int(s, 1))
+                num = safe_int(ep.get('episode_num'), len(eps) + 1)
+                ext = ep.get('container_extension') or 'mkv'
+                ep_info = ep.get('info') if isinstance(ep.get('info'), dict) else {}
+                eps.append({
+                    'id': ep.get('id'), 'num': num, 'season': season, 'ext': ext,
+                    'title': ep.get('title') or '',
+                    'duration': ep_info.get('duration') or '',
+                    'plot': ep_info.get('plot') or '',
+                    'filename': episode_filename(show_name, season, num, ep.get('title'), ext),
+                    'downloaded': str(ep.get('id')) in history,
+                })
+            eps.sort(key=lambda e: e['num'])
+            seasons_data.append((safe_int(s, 1), eps))
+    except XtreamError as e:
+        error = str(e)
 
-    is_fav = any(f['series_id'] == series_id for f in load_favorites())
-
-    return render_template('seasons.html',
-                           series_name=show_name,
-                           series_id=series_id,
-                           series_meta=meta,
-                           seasons_data=seasons_data,
-                           is_fav=is_fav,
-                           error=error)
+    backdrop = meta.get('backdrop_path')
+    if isinstance(backdrop, list):
+        backdrop = backdrop[0] if backdrop else ''
+    is_fav = any(f.get('series_id') == series_id for f in db.load_favorites(db.account_key(acc)))
+    return render_template('seasons.html', series_name=show_name, series_id=series_id,
+                           meta=meta, backdrop=backdrop or '', seasons_data=seasons_data,
+                           is_fav=is_fav, error=error)
 
 
 # ---------------------------------------------------------------------------
-# Routes — movies (VOD)
+# Routes — films
 # ---------------------------------------------------------------------------
 
 @app.route('/movies')
-def movies():
-    client = get_client()
-    if not client:
-        return redirect(url_for('index'))
-    cache = load_cache()
-    if 'movie_cats' in cache:
-        cats, error = cache['movie_cats'], None
-    else:
-        try:
-            cats = client.movie_categories()
-            cache['movie_cats'] = cats
-            save_cache(cache)
-            error = None
-        except Exception as e:
-            cats, error = [], str(e)
-    return render_template('movies.html', categories=cats, error=error)
+@login_required
+def movies(acc):
+    return _browse(acc, 'movie')
 
 
 @app.route('/movies/category/<cat_id>')
-def movies_category(cat_id):
-    client = get_client()
-    if not client:
-        return redirect(url_for('index'))
-    cache    = load_cache()
-    cat_name = request.args.get('name', 'Films')
-    cached   = cache.get('movies_by_cat', {}).get(cat_id)
-    if cached is not None:
-        return render_template('movie_list.html', movies=cached, title=cat_name, error=None)
-    try:
-        movie_list = client.movies(cat_id)
-        cache.setdefault('movies_by_cat', {})[cat_id] = movie_list
-        save_cache(cache)
-        error = None
-    except Exception as e:
-        movie_list, error = [], str(e)
-    return render_template('movie_list.html', movies=movie_list, title=cat_name, error=error)
+@login_required
+def movies_category(acc, cat_id):
+    cat = catalog(acc)
+    name = next((c.get('category_name') for c in cat.get('movie_cats', [])
+                 if str(c.get('category_id')) == cat_id), 'Films')
+    items = [m for m in cat.get('movies', []) if in_category(m, cat_id)]
+    return render_template('grid.html', kind='movie', items=items, title=name,
+                           back=url_for('movies'), history=db.load_history(db.account_key(acc)))
+
+
+# ---------------------------------------------------------------------------
+# Routes — zoeken, sync, favorieten
+# ---------------------------------------------------------------------------
+
+@app.route('/search')
+@login_required
+def search(acc):
+    q = request.args.get('q', '').strip()
+    if not q:
+        return redirect(url_for('browse'))
+    words = q.lower().split()
+    cat = catalog(acc)
+
+    def match(item):
+        name = (item.get('name') or '').lower()
+        return all(w in name for w in words)
+
+    return render_template('search.html', q=q,
+                           series=[s for s in cat.get('series', []) if match(s)][:300],
+                           movies=[m for m in cat.get('movies', []) if match(m)][:300],
+                           history=db.load_history(db.account_key(acc)))
 
 
 @app.route('/movies/search')
-def movies_search():
-    client = get_client()
-    if not client:
-        return redirect(url_for('index'))
-    q = request.args.get('q', '').strip().lower()
-    if not q:
-        return redirect(url_for('movies'))
-    cache = load_cache()
-    if 'movies_all' not in cache:
-        try:
-            cache['movies_all'] = client.movies()
-            save_cache(cache)
-        except Exception as e:
-            return render_template('movie_list.html', movies=[], title=f'Zoeken: {q}', error=str(e))
-    results = [m for m in cache['movies_all'] if q in m.get('name', '').lower()]
-    return render_template('movie_list.html', movies=results, title=f'Zoeken: {q}', error=None)
+def movies_search():  # v2-compatibiliteit
+    return redirect(url_for('search', q=request.args.get('q', '')))
 
 
-# ---------------------------------------------------------------------------
-# Routes — favorites
-# ---------------------------------------------------------------------------
+@app.route('/sync', methods=['POST'])
+@login_required
+def sync(acc):
+    try:
+        sync_catalog(acc)
+    except XtreamError as e:
+        log.warning('Handmatige sync mislukt: %s', e)
+    ref = request.referrer or ''
+    return redirect(ref if ref.startswith(request.host_url) else url_for('browse'))
+
 
 @app.route('/favorites')
-def favorites():
-    if 'server' not in session:
-        return redirect(url_for('index'))
-    all_favs     = load_favorites()
-    fav_series   = [f for f in all_favs if f.get('type', 'series') == 'series']
-    fav_movies   = [f for f in all_favs if f.get('type') == 'movie']
-    return render_template('favorites.html', fav_series=fav_series,
-                           fav_movies=fav_movies, total=len(all_favs))
+@login_required
+def favorites(acc):
+    favs = db.load_favorites(db.account_key(acc))
+    return render_template('favorites.html',
+                           fav_series=[f for f in favs if f.get('type', 'series') == 'series'],
+                           fav_movies=[f for f in favs if f.get('type') == 'movie'],
+                           total=len(favs))
 
 
 @app.route('/favorites/toggle', methods=['POST'])
-def fav_toggle():
-    if 'server' not in session:
-        return jsonify(error='not logged in'), 401
-    data     = request.get_json()
-    fav_type = data.get('type', 'series')
-    item_id  = int(data.get('movie_id' if fav_type == 'movie' else 'series_id', 0))
-    name     = data.get('name', '')
-    cover    = data.get('cover', '')
-    is_fav   = toggle_favorite(item_id, name, cover, fav_type)
+@login_required
+def fav_toggle(acc):
+    data = request.get_json(silent=True) or {}
+    fav_type = 'movie' if data.get('type') == 'movie' else 'series'
+    item_id = safe_int(data.get('movie_id' if fav_type == 'movie' else 'series_id') or data.get('id'))
+    if not item_id:
+        return jsonify(error='ongeldig id'), 400
+    is_fav = db.toggle_favorite(db.account_key(acc), fav_type, item_id,
+                                str(data.get('name', ''))[:300], str(data.get('cover', ''))[:1000])
     return jsonify(is_fav=is_fav)
 
 
-# ---------------------------------------------------------------------------
-# Routes — download history
-# ---------------------------------------------------------------------------
-
 @app.route('/history/add', methods=['POST'])
-def history_add():
-    if 'server' not in session:
-        return jsonify(error='not logged in'), 401
-    ep_ids = request.get_json().get('ep_ids', [])
-    mark_downloaded(ep_ids)
+@login_required
+def history_add(acc):
+    ids = (request.get_json(silent=True) or {}).get('ep_ids', [])
+    db.mark_downloaded(db.account_key(acc), [str(i) for i in ids][:2000])
     return jsonify(ok=True)
 
 
 # ---------------------------------------------------------------------------
-# Routes — stream to browser
+# Routes — browserdownload (proxy)
 # ---------------------------------------------------------------------------
 
-def _proxy_stream(url: str, filename: str):
+def _proxy_stream(url, filename):
+    headers = {'User-Agent': USER_AGENT}
+    if request.headers.get('Range'):
+        headers['Range'] = request.headers['Range']   # laat de browser hervatten
     try:
-        upstream = http.get(url, stream=True,
-                            timeout=(CONNECTION_TIMEOUT, None),
-                            headers={'User-Agent': 'IPTV-Downloader/1.0'},
-                            verify=False)
+        upstream = requests.get(url, stream=True, timeout=(15, 60), headers=headers, verify=VERIFY_SSL)
         upstream.raise_for_status()
-    except Exception as e:
-        return f'Stream fout: {e}', 502
+    except requests.HTTPError as e:
+        return f'Provider gaf HTTP {e.response.status_code}', 502
+    except requests.RequestException:
+        return 'Kan stream niet openen bij de provider', 502
 
     def generate():
-        for chunk in upstream.iter_content(chunk_size=1024 * 64):
-            if chunk:
-                yield chunk
+        try:
+            yield from upstream.iter_content(chunk_size=256 * 1024)
+        finally:
+            upstream.close()
 
-    headers = {
+    out = {
         'Content-Disposition': f"attachment; filename*=UTF-8''{quote(filename)}",
         'Content-Type': upstream.headers.get('Content-Type', 'application/octet-stream'),
+        'Accept-Ranges': 'bytes',
     }
-    if 'Content-Length' in upstream.headers:
-        headers['Content-Length'] = upstream.headers['Content-Length']
-    return Response(stream_with_context(generate()), headers=headers)
+    for h in ('Content-Length', 'Content-Range'):
+        if h in upstream.headers:
+            out[h] = upstream.headers[h]
+    return Response(stream_with_context(generate()), status=upstream.status_code, headers=out)
+
+
+def _ext(default):
+    return re.sub(r'\W', '', request.args.get('ext', default))[:5] or default
 
 
 @app.route('/stream/<ep_id>')
-def stream_episode(ep_id):
-    client = get_client()
-    if not client:
-        return redirect(url_for('index'))
-    ext      = request.args.get('ext', 'mkv')
-    filename = request.args.get('filename', f'episode.{ext}')
-    return _proxy_stream(client.stream_url(ep_id, ext), filename)
+@login_required
+def stream_episode(acc, ep_id):
+    if not ep_id.isdigit():
+        return 'Ongeldig id', 400
+    ext = _ext('mkv')
+    return _proxy_stream(client_for(acc).episode_url(ep_id, ext),
+                         clean_filename(request.args.get('filename'), f'episode.{ext}'))
 
 
 @app.route('/stream/movie/<movie_id>')
-def stream_movie(movie_id):
-    client = get_client()
-    if not client:
-        return redirect(url_for('index'))
-    ext      = request.args.get('ext', 'mp4')
-    filename = request.args.get('filename', f'movie.{ext}')
-    return _proxy_stream(client.movie_url(movie_id, ext), filename)
+@login_required
+def stream_movie(acc, movie_id):
+    if not movie_id.isdigit():
+        return 'Ongeldig id', 400
+    ext = _ext('mp4')
+    return _proxy_stream(client_for(acc).movie_url(movie_id, ext),
+                         clean_filename(request.args.get('filename'), f'movie.{ext}'))
 
 
 # ---------------------------------------------------------------------------
-# Routes — download to container
+# Routes — serverdownloads (wachtrij)
 # ---------------------------------------------------------------------------
 
-_active_downloads = {}
+@app.route('/downloads')
+@login_required
+def downloads_page(acc):
+    return render_template('downloads.html', settings=db.load_settings())
+
+
+@app.route('/api/downloads', methods=['GET'])
+def api_downloads():
+    root = str(db.DOWNLOAD_DIR.resolve())
+    jobs = downloads.list()
+    for j in jobs:
+        j.pop('account_key', None)
+        j['dest'] = j['dest'].replace(root, '', 1).lstrip('/')
+    return jsonify(jobs=jobs, summary=downloads.summary())
+
+
+@app.route('/api/downloads/summary')
+def api_downloads_summary():
+    return jsonify(downloads.summary())
+
+
+@app.route('/api/downloads', methods=['POST'])
+@login_required
+def api_downloads_add(acc):
+    """Body: {items: [{type: 'episode'|'movie', id, ext, filename, show?, season?, title?, year?}]}"""
+    data = request.get_json(silent=True) or {}
+    items = data.get('items') or ([data] if data.get('id') else [])
+    added, skipped, errors = 0, 0, []
+    key = db.account_key(acc)
+    for it in items[:1000]:
+        kind = 'movie' if it.get('type') == 'movie' else 'episode'
+        item_id = str(it.get('id', '')).strip()
+        if not item_id.isdigit():
+            errors.append('ongeldig id')
+            continue
+        ext = re.sub(r'\W', '', str(it.get('ext') or ('mp4' if kind == 'movie' else 'mkv')))[:5]
+        filename = clean_filename(it.get('filename'), f'{item_id}.{ext}')
+        try:
+            dest = build_dest(kind, filename, show=it.get('show', ''), season=safe_int(it.get('season'), 1),
+                              title=it.get('title', ''), year=str(it.get('year') or ''))
+        except ValueError as e:
+            errors.append(str(e))
+            continue
+        job = downloads.add(account_id=acc['id'], account_key=key, kind=kind, item_id=item_id,
+                            ext=ext, dest=dest, label=str(it.get('label') or filename)[:200],
+                            history_id=item_id if kind == 'episode' else f'm{item_id}')
+        if job:
+            added += 1
+        else:
+            skipped += 1
+    status = 200 if added or skipped else 400
+    return jsonify(ok=bool(added or skipped), added=added, skipped=skipped, errors=errors[:5]), status
+
 
 @app.route('/download/server', methods=['POST'])
-def download_server():
-    client = get_client()
-    if not client:
-        return jsonify(error='not logged in'), 401
-    data     = request.get_json()
-    dtype    = data.get('type', 'episode')
-    item_id  = str(data.get('id'))
-    ext      = data.get('ext', 'mkv')
-    filename = data.get('filename', f'{item_id}.{ext}')
-    settings = load_settings()
-    dl_path  = Path(settings.get('download_path', '/mnt/video/_downloads'))
-
-    if dtype == 'movie':
-        url = client.movie_url(item_id, ext)
-    else:
-        url = client.stream_url(item_id, ext)
-
-    if item_id in _active_downloads:
-        return jsonify(error='already downloading'), 409
-
-    def _download():
-        try:
-            _active_downloads[item_id] = {'filename': filename, 'status': 'downloading'}
-            dl_path.mkdir(parents=True, exist_ok=True)
-            dest = dl_path / filename
-            r = http.get(url, stream=True, timeout=(CONNECTION_TIMEOUT, None),
-                         headers={'User-Agent': 'IPTV-Downloader/1.0'},
-                         verify=False)
-            r.raise_for_status()
-            total = int(r.headers.get('Content-Length', 0))
-            written = 0
-            with open(dest, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=1024 * 256):
-                    if chunk:
-                        f.write(chunk)
-                        written += len(chunk)
-            _active_downloads[item_id] = {'filename': filename, 'status': 'done',
-                                          'size': written}
-        except Exception as e:
-            _active_downloads[item_id] = {'filename': filename, 'status': 'error',
-                                          'error': str(e)}
-
-    t = threading.Thread(target=_download, daemon=True)
-    t.start()
-    return jsonify(ok=True, filename=filename)
+def download_server_compat():  # v2-endpoint
+    return api_downloads_add()
 
 
-@app.route('/download/status/<item_id>')
-def download_status(item_id):
-    info = _active_downloads.get(item_id)
-    if not info:
-        return jsonify(status='unknown')
-    return jsonify(**info)
+@app.route('/api/downloads/<job_id>/cancel', methods=['POST'])
+def api_cancel(job_id):
+    return jsonify(ok=downloads.cancel(job_id))
 
 
-@app.route('/download/status')
-def download_status_all():
-    return jsonify(downloads=_active_downloads)
+@app.route('/api/downloads/<job_id>/retry', methods=['POST'])
+def api_retry(job_id):
+    return jsonify(ok=downloads.retry(job_id))
+
+
+@app.route('/api/downloads/clear', methods=['POST'])
+def api_clear():
+    downloads.clear_finished()
+    return jsonify(ok=True)
 
 
 # ---------------------------------------------------------------------------
-# Routes — settings
+# Routes — instellingen
 # ---------------------------------------------------------------------------
 
-SYNC_OPTIONS = [
-    (0,   'Uitgeschakeld'),
-    (1,   '1 uur'),
-    (6,   '6 uur'),
-    (12,  '12 uur'),
-    (72,  '3 dagen'),
-]
+SYNC_OPTIONS = [(0, 'Uit'), (1, '1 uur'), (6, '6 uur'), (12, '12 uur'), (24, '1 dag'), (72, '3 dagen')]
 
 
 @app.route('/settings', methods=['GET', 'POST'])
-def settings():
-    if 'server' not in session:
-        return redirect(url_for('index'))
+@login_required
+def settings(acc):
+    error = None
     if request.method == 'POST':
-        s = load_settings()
-        s['sync_interval']  = int(request.form.get('sync_interval', s.get('sync_interval', 0)))
-        s['download_mode']  = request.form.get('download_mode', s.get('download_mode', 'browser'))
-        s['download_path']  = request.form.get('download_path', '').strip() or s.get('download_path', '/mnt/video/_downloads')
-        save_settings(s)
-        return redirect(url_for('settings'))
+        f = request.form
+        sub = f.get('download_subdir', '').strip().strip('/')
+        if '..' in Path(sub).parts:
+            error = 'Submap mag geen “..” bevatten.'
+        else:
+            db.save_settings({
+                'download_mode': 'server' if f.get('download_mode') == 'server' else 'browser',
+                'download_subdir': sub,
+                'organize': 'folders' if f.get('organize') == 'folders' else 'flat',
+                'max_concurrent': max(1, min(10, safe_int(f.get('max_concurrent'), 1))),
+                'sync_interval': safe_int(f.get('sync_interval'), 0),
+            })
+            return redirect(url_for('settings', saved=1))
 
-    s     = load_settings()
-    cache = load_cache()
-    ts    = cache.get('fetched_at')
+    s = db.load_settings()
+    cache = db.get_cache(db.account_key(acc))
+    age = db.cache_age_seconds(cache)
     next_sync = None
-    if ts and s.get('sync_interval'):
-        try:
-            last_dt   = datetime.fromisoformat(ts)
-            next_dt   = last_dt + timedelta(hours=s['sync_interval'])
-            delta_sec = (next_dt - datetime.utcnow()).total_seconds()
-            if delta_sec > 0:
-                h, rem = divmod(int(delta_sec), 3600)
-                m      = rem // 60
-                next_sync = f'{h}u {m}m' if h else f'{m}m'
-            else:
-                next_sync = 'Binnenkort'
-        except Exception:
-            pass
+    if s['sync_interval'] and age is not None:
+        remaining = s['sync_interval'] * 3600 - age
+        next_sync = f'over {human_duration(remaining)}' if remaining > 60 else 'binnenkort'
 
-    return render_template('settings.html',
-                           settings=s,
-                           sync_options=SYNC_OPTIONS,
-                           cache_age=cache_age(cache),
-                           next_sync=next_sync)
+    info = cache.get('account_info') or {}
+    exp = safe_int(info.get('exp_date'))
+    return render_template('settings.html', settings=s, sync_options=SYNC_OPTIONS,
+                           cache_age=human_age(age), next_sync=next_sync, error=error,
+                           saved=request.args.get('saved'), download_dir=str(db.DOWNLOAD_DIR),
+                           acc_info=info, verify_ssl=VERIFY_SSL,
+                           expires=time.strftime('%d-%m-%Y', time.localtime(exp)) if exp else '')
+
+
+@app.route('/healthz')
+def healthz():
+    return jsonify(ok=True, version=VERSION)
+
+
+@app.errorhandler(XtreamError)
+def handle_xtream_error(e):
+    if request.path.startswith('/api/'):
+        return jsonify(error=str(e)), 502
+    return render_template('error.html', error=str(e)), 502
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=2233, debug=False)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 2233)), debug=False, threaded=True)
